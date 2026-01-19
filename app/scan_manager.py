@@ -165,6 +165,55 @@ class ScanManager:
             # Return empty list on failure (e.g., site not reachable)
             return []
 
+    def run_wafw00f(self, target):
+        """
+        Detects WAF using wafw00f.
+        Command: wafw00f target.com -o output.json
+        """
+        output_file = os.path.join(self.output_dir, f"{target}_waf.json")
+        
+        if not shutil.which("wafw00f"):
+            raise Exception("wafw00f tool not found in system PATH.")
+
+        # -o: output file
+        # -f: json format (implied by file extension in newer versions or handled by wrapper)
+        # wafw00f output handling is tricky. It prints to stdout. 
+        # The -o option might just save the structured log. 
+        # Let's try capturing stdout or use specific flags.
+        # Wafw00f v2.3.1 supports -o output_file.
+        
+        command = ["wafw00f", target, "-o", output_file]
+        
+        print(f"[*] Running command: {' '.join(command)}")
+        try:
+            # wafw00f might return non-zero if no WAF found? No, usually 0.
+            subprocess.run(
+                command, 
+                shell=False, 
+                check=False, # Don't raise on non-zero, wafw00f might behave differently
+                stdout=subprocess.PIPE, 
+                stderr=subprocess.PIPE
+            )
+        except Exception as e:
+            print(f"[!] wafw00f failed: {e}")
+            raise
+
+        # Parse the JSON output
+        results = []
+        if os.path.exists(output_file):
+            try:
+                with open(output_file, 'r') as f:
+                    data = json.load(f)
+                    # Support list or dict structure depending on version
+                    if isinstance(data, list):
+                        results = data
+                    else:
+                        results = [data]
+            except Exception as e:
+                print(f"[!] JSON Parsing error (wafw00f): {e}")
+                
+        return results
+
 if __name__ == "__main__":
     # Manual test
     manager = ScanManager()

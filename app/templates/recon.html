@@ -137,6 +137,10 @@
                                     <label class="form-check-label" for="checkSubfinder">Subfinder <span class="text-muted small">| Subdomains</span></label>
                                 </div>
                                 <div class="form-check form-switch mb-2">
+                                    <input class="form-check-input" type="checkbox" id="checkWaf" value="wafw00f" checked>
+                                    <label class="form-check-label" for="checkWaf">WAFW00F <span class="text-muted small">| Firewall Detect</span></label>
+                                </div>
+                                <div class="form-check form-switch mb-2">
                                     <input class="form-check-input" type="checkbox" id="checkNmap" value="nmap" checked>
                                     <label class="form-check-label" for="checkNmap">Nmap <span class="text-muted small">| Fast Scan</span></label>
                                 </div>
@@ -198,6 +202,18 @@
                                 </h6>
                                 <div id="techList" class="d-flex flex-wrap gap-2">
                                     <span class="text-muted small">No data yet.</span>
+                                </div>
+                                <div id="wafAlert" class="mt-2 d-none">
+                                    <div class="alert alert-danger p-2 small border-0 d-flex align-items-center">
+                                        <i class="bi bi-shield-fill-exclamation me-2"></i>
+                                        <div>
+                                            <strong>WAF DETECTED!</strong><br>
+                                            <span id="wafText">Cloudflare</span>
+                                        </div>
+                                    </div>
+                                    <div class="alert alert-warning p-1 small border-0 text-center text-black">
+                                        <i class="bi bi-speedometer2"></i> Suggestion: Enable Slow Scan Mode
+                                    </div>
                                 </div>
                             </div>
 
@@ -261,10 +277,14 @@
             }
             
             // Handle final results update
-            if (data.result) {
-                renderResults(data.result);
-                launchBtn.disabled = false;
-                progressBar.classList.remove('progress-bar-animated');
+            if (data.result || data.partial_result) {
+                const res = data.result || data.partial_result;
+                renderResults(res);
+                
+                if (data.result) {
+                    launchBtn.disabled = false;
+                    progressBar.classList.remove('progress-bar-animated');
+                }
             } else if (data.status.includes('Error')) {
                 launchBtn.disabled = false;
                 progressBar.classList.remove('progress-bar-animated');
@@ -279,10 +299,22 @@
                 techContainer.innerHTML = res.technologies.map(t => 
                     `<span class="badge bg-info text-dark">${t}</span>`
                 ).join('');
-            } else if (res.technologies) {
-                techContainer.innerHTML = '<span class="text-muted small">No technologies detected.</span>';
             }
 
+            // Render WAF
+            if(res.waf && res.waf.length > 0) {
+                const wafData = res.waf[0];
+                const hasWaf = wafData.firewall && wafData.firewall !== 'None' && wafData.firewall !== 'Generic';
+                
+                // Wafw00f JSON format varies, sometimes it's list of objects with 'firewall' and 'manufacturer'
+                // Assuming format: [{ "url": "...", "firewall": "Cloudflare", "manufacturer": "Cloudflare" }]
+                
+                if (hasWaf) {
+                    document.getElementById('wafAlert').classList.remove('d-none');
+                    document.getElementById('wafText').innerText = wafData.firewall;
+                }
+            }
+            
             // Render Ports
             const portList = document.getElementById('portList');
             if(res.nmap && res.nmap.length > 0) {
@@ -292,8 +324,6 @@
                         <span class="badge bg-secondary">${p.service}</span>
                     </li>`
                 ).join('');
-            } else if (res.nmap) {
-                portList.innerHTML = '<li class="list-group-item bg-transparent text-muted">No open ports found (Fast Scan).</li>';
             }
 
             // Render Subdomains
@@ -302,12 +332,23 @@
             if(res.subdomains && res.subdomains.length > 0) {
                 subCount.innerText = res.subdomains.length;
                 subTable.innerHTML = res.subdomains.map((sub, i) => 
-                    `<tr><td>${i+1}</td><td class="font-monospace text-success">${sub}</td></tr>`
+                    `<tr>
+                        <td>${i+1}</td>
+                        <td class="font-monospace text-success d-flex justify-content-between align-items-center">
+                            ${sub} 
+                            <button class="btn btn-sm btn-outline-secondary py-0" style="font-size:0.7em" onclick="rescanSubdomain('${sub}')">
+                                <i class="bi bi-arrow-repeat"></i> Scan
+                            </button>
+                        </td>
+                    </tr>`
                 ).join('');
-            } else if (res.subdomains) {
-                subCount.innerText = '0';
-                subTable.innerHTML = '<tr><td colspan="2" class="text-center text-muted">No subdomains found.</td></tr>';
             }
+        }
+
+        function rescanSubdomain(sub) {
+            document.getElementById('targetInput').value = sub;
+            log(`System: Prepared re-scan for ${sub}. Click Initialize Scan to start.`);
+            window.scrollTo(0,0);
         }
 
         document.getElementById('reconForm').addEventListener('submit', async (e) => {
@@ -319,6 +360,7 @@
             if(document.getElementById('checkSubfinder').checked) tools.push('subfinder');
             if(document.getElementById('checkNmap').checked) tools.push('nmap');
             if(document.getElementById('checkWappalyzer').checked) tools.push('wappalyzer');
+            if(document.getElementById('checkWaf').checked) tools.push('wafw00f');
 
             if(tools.length === 0) {
                 alert("Please select at least one tool.");

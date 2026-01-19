@@ -169,11 +169,6 @@ def workflow_task(self, target, tools):
         if 'subfinder' in tools:
             current_step += 1
             socketio.emit('task_update', {'status': f'Running Subfinder ({current_step}/{total_steps})...', 'percent': int((current_step/total_steps)*30)})
-            # We call the function directly (synchronously) inside this worker for simplicity
-            # However, since they are Celery tasks, we should ideally chain them or call the underlying logic.
-            # To avoid "task calling task" anti-pattern which blocks workers, we will just instantiate ScanManager here 
-            # OR we can just use the logic from the tasks. 
-            # Reusing the ScanManager is cleanest.
             manager = ScanManager()
             
             subdomains = manager.run_subfinder(target)
@@ -187,12 +182,34 @@ def workflow_task(self, target, tools):
                 "timestamp": datetime.datetime.utcnow()
             })
             
+            # QoL: Emit intermediate result immediately
+            socketio.emit('task_update', {
+                'status': f'Subfinder finished. Found {len(subdomains)} subdomains.',
+                'percent': int((current_step/total_steps)*30),
+                'partial_result': {'subdomains': subdomains} 
+            })
+            
+        if 'wafw00f' in tools:
+            current_step += 1
+            socketio.emit('task_update', {'status': f'Running WAF Detection ({current_step}/{total_steps})...', 'percent': int((current_step/total_steps)*45)})
+            manager = ScanManager()
+            waf_res = manager.run_wafw00f(target)
+            results['waf'] = waf_res
+            
+            # Emit intermediate result
+            socketio.emit('task_update', {
+                'status': 'WAF Check complete.',
+                'percent': int((current_step/total_steps)*45),
+                'partial_result': {'waf': waf_res}
+            })
+
         if 'nmap' in tools:
             current_step += 1
             socketio.emit('task_update', {'status': f'Running Nmap ({current_step}/{total_steps})...', 'percent': int((current_step/total_steps)*60)})
             manager = ScanManager()
             nmap_res = manager.run_nmap(target)
             results['nmap'] = nmap_res
+
             
             get_scans_collection().insert_one({
                 "target": target,
@@ -200,6 +217,12 @@ def workflow_task(self, target, tools):
                 "type": "nmap",
                 "results": nmap_res,
                 "timestamp": datetime.datetime.utcnow()
+            })
+            
+            socketio.emit('task_update', {
+                'status': 'Nmap finished.',
+                'percent': int((current_step/total_steps)*60),
+                'partial_result': {'nmap': nmap_res} 
             })
             
         if 'wappalyzer' in tools:
@@ -216,6 +239,12 @@ def workflow_task(self, target, tools):
                     "name": t,
                     "timestamp": datetime.datetime.utcnow()
                 })
+
+            socketio.emit('task_update', {
+                'status': 'Tech Detect finished.',
+                'percent': int((current_step/total_steps)*90),
+                'partial_result': {'technologies': tech_res} 
+            })
 
         socketio.emit('task_update', {
             'status': 'All scans completed successfully!',
