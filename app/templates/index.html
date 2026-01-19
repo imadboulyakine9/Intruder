@@ -1,0 +1,86 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Intruder - Mission Control</title>
+    <!-- Bootstrap 5 CSS -->
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
+    <!-- Socket.IO -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/socket.io/4.0.1/socket.io.js"></script>
+</head>
+<body class="bg-dark text-light">
+    <div class="container mt-5">
+        <div class="row">
+            <div class="col-md-8 offset-md-2">
+                <div class="card bg-secondary text-white">
+                    <div class="card-header">
+                        <h3><i class="bi bi-robot"></i> Jarvis Control Panel</h3>
+                    </div>
+                    <div class="card-body text-center">
+                        <h5 class="card-title">System Status: Online</h5>
+                        <p class="card-text">Verification of Async Task Queue & Real-time Sockets.</p>
+                        
+                        <button id="start-btn" class="btn btn-primary btn-lg mt-3">
+                            🚀 Launch Hello World Task
+                        </button>
+
+                        <div class="mt-4">
+                            <label>Task Progress:</label>
+                            <div class="progress" style="height: 25px;">
+                                <div id="progress-bar" class="progress-bar progress-bar-striped progress-bar-animated bg-success" 
+                                     role="progressbar" style="width: 0%">0%</div>
+                            </div>
+                        </div>
+
+                        <div id="logs" class="mt-4 text-start font-monospace bg-black p-3 rounded" style="height: 200px; overflow-y: auto; border: 1px solid #444;">
+                            <div class="text-muted">> System ready...</div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        const socket = io();
+        const logs = document.getElementById('logs');
+        const progressBar = document.getElementById('progress-bar');
+        const btn = document.getElementById('start-btn');
+
+        function log(message) {
+            const div = document.createElement('div');
+            div.textContent = `> ${message}`;
+            logs.appendChild(div);
+            logs.scrollTop = logs.scrollHeight;
+        }
+
+        // Listen for task updates
+        socket.on('task_update', function(msg) {
+            // Only update if it pertains to our progress
+            if (msg.percent) {
+                progressBar.style.width = msg.percent + '%';
+                progressBar.textContent = msg.percent + '%';
+                log(`Progress: ${msg.percent}% - ${msg.status}`);
+            }
+        });
+
+        // Button click handler
+        btn.addEventListener('click', async () => {
+            btn.disabled = true;
+            log('Initiating launch sequence...');
+            progressBar.style.width = '0%';
+            progressBar.textContent = '0%';
+            
+            try {
+                const response = await fetch('/start-task', { method: 'POST' });
+                const data = await response.json();
+                log(`Task dispatched! ID: ${data.task_id}`);
+            } catch (error) {
+                log(`Error: ${error}`);
+                btn.disabled = false;
+            }
+        });
+    </script>
+</body>
+</html>
