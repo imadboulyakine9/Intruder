@@ -1,5 +1,6 @@
 from flask import Blueprint, render_template, jsonify, request
 from app.tasks.recon import workflow_task
+from app.tasks.attack import nuclei_scan, dalfox_scan
 from app.celery_worker import hello_world_task
 from app.analyzer import Analyzer
 from app.db import get_scans_collection, get_attackable_urls_collection
@@ -99,8 +100,17 @@ def launch_attack():
     scan_id = data.get('scan_id')
     tool = data.get('tool')
     
-    # In Phase 4, we will actually trigger Celery tasks here.
-    # For now, just update status.
+    scan = get_scans_collection().find_one({"scan_id": scan_id})
+    if not scan:
+        return jsonify({'error': 'Scan not found'}), 404
+    
+    target = scan.get('target')
+
+    # Trigger Celery tasks
+    if tool == 'Nuclei':
+        nuclei_scan.delay(target, scan_id)
+    elif tool == 'Dalfox':
+        dalfox_scan.delay(target, scan_id)
     
     get_scans_collection().update_one(
         {"scan_id": scan_id},

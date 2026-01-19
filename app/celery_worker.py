@@ -86,6 +86,7 @@ celery_app.conf.task_queues = (
 # celery_app.autodiscover_tasks(['app.tasks'])
 # Explicitly import tasks to ensure registration
 import app.tasks.recon
+import app.tasks.attack
 
 
 @celery_app.task(bind=True)

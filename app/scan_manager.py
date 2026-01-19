@@ -302,6 +302,136 @@ class ScanManager:
         
         return wafs
 
+    def _run_with_stream(self, command, callback=None):
+        """
+        Runs a command and streams stdout to a callback function.
+        """
+        print(f"[*] Running stream command: {command}")
+        process = subprocess.Popen(
+            command,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.STDOUT, # Merge stderr into stdout
+            text=True,
+            bufsize=1,
+            shell=False 
+        )
+        
+        output_lines = []
+        
+        while True:
+            line = process.stdout.readline()
+            if not line and process.poll() is not None:
+                break
+            if line:
+                stripped_line = line.strip()
+                output_lines.append(stripped_line)
+                if callback:
+                    callback(stripped_line)
+                    
+        return output_lines
+
+    def run_nuclei(self, target, callback=None):
+        """
+        Runs Nuclei on the target.
+        Command: nuclei -u target.com -json -o results.json
+        """
+        output_file = os.path.join(self.output_dir, f"{target}_nuclei.json")
+        
+        if not shutil.which("nuclei"):
+            if callback: callback("Error: Nuclei not found.")
+            return []
+
+        # -u: target url
+        # -json: json output (but we also want stdout for progress, Nuclei prints info to stdout)
+        # -o: output file
+        # -stats: print stats
+        command = ["nuclei", "-u", target, "-json", "-o", output_file]
+        
+        # We run it and stream output
+        self._run_with_stream(command, callback)
+        
+        # Parse JSON output (Step 38: extract info.severity > low)
+        findings = []
+        if os.path.exists(output_file):
+            try:
+                with open(output_file, 'r') as f:
+                    # Nuclei writes a list of JSON objects (one per line usually if -jsonl, 
+                    # but -json produces array? No, nuclei -json writes an array of objects [{},{}] or one JSON per line?
+                    # Nuclei typically writes JSON lines. Let's handle both.)
+                    # Actually, `nuclei -json` usually writes a JSON array. `nuclei -jsonl` writes lines.
+                    # The prompt said `-json`.
+                    content = f.read()
+                    if content.startswith('['):
+                        data = json.loads(content)
+                        for item in data:
+                            severity = item.get('info', {}).get('severity', 'low').lower()
+                            if severity in ['medium', 'high', 'critical']:
+                                findings.append(item)
+                    else:
+                        # Try parsing line by line
+                        f.seek(0)
+                        for line in f:
+                            try:
+                                item = json.loads(line)
+                                severity = item.get('info', {}).get('severity', 'low').lower()
+                                if severity in ['medium', 'high', 'critical']:
+                                    findings.append(item)
+                            except:
+                                pass
+            except Exception as e:
+                 if callback: callback(f"Error parsing Nuclei output: {e}")
+                 
+        return findings
+
+    def run_dalfox(self, target_urls_file, callback=None):
+        """
+        Runs Dalfox on a file of URLs.
+        Command: dalfox file urls.txt
+        """
+        # If output file needed, dalfox has -o
+        base_name = os.path.basename(target_urls_file).replace('.txt', '')
+        output_file = os.path.join(self.output_dir, f"{base_name}_dalfox.json") # Dalfox supports json
+        
+        if not shutil.which("dalfox"):
+             if callback: callback("Error: Dalfox not found.")
+             return []
+             
+        # Command: dalfox file urls.txt --format json -o output.json
+        command = ["dalfox", "file", target_urls_file, "--format", "json", "-o", output_file]
+        
+        self._run_with_stream(command, callback)
+        
+        # Parse PoCs (Step 41)
+        pocs = []
+        if os.path.exists(output_file):
+            try:
+                with open(output_file, 'r') as f:
+                    # Dalfox json format is typically a JSON object per line or an array
+                    # Let's assume JSON array for safety if --format json puts it in array, 
+                    # else check lines.
+                    # Dalfox often puts multiple JSON objects one after another or in array.
+                    # We'll try loading as one JSON first.
+                    try:
+                        data = json.load(f)
+                        if isinstance(data, list):
+                            pocs = data
+                        else:
+                            pocs = [data]
+                    except:
+                        # Try line by line
+                         f.seek(0)
+                         for line in f:
+                             try:
+                                 pocs.append(json.loads(line))
+                             except:
+                                 pass
+            except Exception as e:
+                if callback: callback(f"Error parsing Dalfox output: {e}")
+
+        # Filter only verified checks if needed? Dalfox usually reports confirmed/potential.
+        
+        return pocs
+
     def run_crawler(self, start_urls):
         """
         Crawls the given URLs to find attackable parameters (Rule 33 & 34).
