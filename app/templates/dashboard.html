@@ -1,0 +1,158 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Intruder - Mission Control</title>
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.7.2/font/bootstrap-icons.css">
+    <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;700&family=Rajdhani:wght@500;600;700&display=swap" rel="stylesheet">
+    <style>
+        :root {
+            --bg-dark: #0a0a0a;
+            --card-bg: #161616;
+            --border-color: #333;
+            --accent-primary: #00ff9d;
+            --accent-danger: #ff0055;
+            --text-main: #e0e0e0;
+        }
+        body { background-color: var(--bg-dark); color: var(--text-main); font-family: 'Rajdhani', sans-serif; }
+        .card { background-color: var(--card-bg); border: 1px solid var(--border-color); color: var(--text-main); margin-bottom: 20px; }
+        .btn-primary { background-color: var(--accent-primary); color: #000; border: none; font-weight: 700; }
+        .btn-danger { background-color: var(--accent-danger); border: none; font-weight: 700; }
+        .scan-item { cursor: pointer; transition: all 0.2s; }
+        .scan-item:hover { background-color: #222; }
+        .status-badge { font-family: 'JetBrains Mono', monospace; font-size: 0.8rem; }
+    </style>
+</head>
+<body>
+    <nav class="navbar navbar-dark bg-black border-bottom border-secondary mb-4">
+        <div class="container-fluid">
+            <a class="navbar-brand" href="#">👾 <span class="text-white">JARVIS</span> <span style="color: var(--accent-primary)">// MISSION CONTROL</span></a>
+            <div>
+                <a href="/" class="btn btn-outline-light btn-sm me-2">Home</a>
+                <a href="/recon" class="btn btn-outline-light btn-sm">New Recon</a>
+            </div>
+        </div>
+    </nav>
+
+    <div class="container-fluid">
+        <div class="row">
+            <!-- Sidebar: Recent Scans -->
+            <div class="col-md-3">
+                <div class="card">
+                    <div class="card-header">Recent Targets</div>
+                    <div class="list-group list-group-flush" id="scanList">
+                        {% for scan in scans %}
+                        <a href="/dashboard?scan_id={{ scan.scan_id }}" class="list-group-item list-group-item-action scan-item {% if scan.scan_id == current_scan.scan_id %}active{% endif %}" style="background-color: transparent; color: inherit;">
+                            <div class="d-flex w-100 justify-content-between">
+                                <h5 class="mb-1">{{ scan.target }}</h5>
+                                <small>{{ scan.timestamp.strftime('%Y-%m-%d %H:%M') }}</small>
+                            </div>
+                            <span class="badge status-badge 
+                                {% if scan.status == 'scanned' %}bg-info
+                                {% elif scan.status == 'analyzed' %}bg-warning
+                                {% elif scan.status == 'attacking' %}bg-danger
+                                {% else %}bg-secondary{% endif %}">
+                                {{ scan.status|upper }}
+                            </span>
+                        </a>
+                        {% endfor %}
+                    </div>
+                </div>
+            </div>
+
+            <!-- Main Content -->
+            <div class="col-md-9">
+                {% if current_scan %}
+                <div class="card">
+                    <div class="card-body">
+                        <div class="d-flex justify-content-between align-items-center">
+                            <h2 class="card-title">{{ current_scan.target }}</h2>
+                            <div>
+                                <span class="badge bg-secondary status-badge">{{ current_scan.status|upper }}</span>
+                            </div>
+                        </div>
+                        
+                        <hr class="border-secondary">
+
+                        <!-- Action Bar -->
+                        <div class="mb-4">
+                            {% if current_scan.status == 'scanned' %}
+                            <button onclick="analyzeTarget('{{ current_scan.target }}', '{{ current_scan.scan_id }}')" class="btn btn-warning">
+                                <i class="bi bi-cpu"></i> Run Analysis Engine
+                            </button>
+                            {% elif current_scan.status == 'analyzed' or current_scan.status == 'attacking' %}
+                            <div class="alert alert-dark border-secondary">
+                                <i class="bi bi-check-circle text-success"></i> Analysis Complete. Showing suggested vectors.
+                            </div>
+                            {% else %}
+                            <div class="alert alert-info border-secondary">
+                                Scan in progress...
+                            </div>
+                            {% endif %}
+                        </div>
+
+                        <!-- Vulnerability Cards -->
+                        {% if suggestions %}
+                        <h4 class="mb-3">Potential Vulnerabilities</h4>
+                        <div class="row">
+                            {% for suggestion in suggestions %}
+                            <div class="col-md-6">
+                                <div class="card border-danger">
+                                    <div class="card-body">
+                                        <h5 class="card-title text-danger">
+                                            <i class="bi bi-shield-exclamation"></i> {{ suggestion.tool }}
+                                        </h5>
+                                        <p class="card-text">{{ suggestion.reason }}</p>
+                                        <button onclick="launchAttack('{{ current_scan.scan_id }}', '{{ suggestion.tool }}')" 
+                                                class="btn btn-danger w-100"
+                                                {% if current_scan.status == 'attacking' %}disabled{% endif %}>
+                                            <i class="bi bi-lightning-charge"></i> Launch Attack
+                                        </button>
+                                    </div>
+                                </div>
+                            </div>
+                            {% endfor %}
+                        </div>
+                        {% endif %}
+
+                    </div>
+                </div>
+                {% else %}
+                <div class="alert alert-dark text-center">
+                    Select a target from the left to view details.
+                </div>
+                {% endif %}
+            </div>
+        </div>
+    </div>
+
+    <script>
+        async function analyzeTarget(target, scanId) {
+            if(confirm('Run Analysis Engine on ' + target + '?')) {
+                const res = await fetch('/api/analyze', {
+                    method: 'POST',
+                    headers: {'Content-Type': 'application/json'},
+                    body: JSON.stringify({target: target, scan_id: scanId})
+                });
+                if(res.ok) window.location.reload();
+            }
+        }
+
+        async function launchAttack(scanId, tool) {
+            if(confirm('Launch ' + tool + ' attack? This is aggressive.')) {
+                const res = await fetch('/api/launch-attack', {
+                    method: 'POST',
+                    headers: {'Content-Type': 'application/json'},
+                    body: JSON.stringify({scan_id: scanId, tool: tool})
+                });
+                if(res.ok) {
+                    alert('Attack Launched! (Monitoring started)');
+                    window.location.reload();
+                }
+            }
+        }
+    </script>
+</body>
+</html>

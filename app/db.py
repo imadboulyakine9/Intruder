@@ -98,6 +98,13 @@ def init_collections():
     # Technologies collection
     tech = db["technologies"]
     tech.create_index([("scan_id", 1), ("name", 1)])
+
+    # Assets collection (Asset-Centric View)
+    assets = db["assets"]
+    assets.create_index("domain", unique=True)
+    assets.create_index("parent_domain")
+    assets.create_index("ip")
+    assets.create_index("technologies")
     
     print("✓ Database indexes created")
 
@@ -106,6 +113,11 @@ def init_collections():
 def get_scans_collection():
     """Get scans collection."""
     return MongoDatabase.get_collection("scans")
+
+
+def get_assets_collection():
+    """Get assets collection."""
+    return MongoDatabase.get_collection("assets")
 
 
 def get_subdomains_collection():

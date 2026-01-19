@@ -24,9 +24,9 @@ class ScanManager:
             # Fallback or retry logic could go here
             self.wappalyzer = Wappalyzer.latest()
 
-    def _run_command(self, command):
+    def _run_command(self, command, timeout=300):
         """
-        Helper to run shell commands safely.
+        Helper to run shell commands safely with valid timeout.
         """
         try:
             print(f"[*] Running command: {command}")
@@ -38,12 +38,81 @@ class ScanManager:
                 check=True, 
                 stdout=subprocess.PIPE, 
                 stderr=subprocess.PIPE,
-                text=True
+                text=True,
+                timeout=timeout
             )
             return result.stdout
+        except subprocess.TimeoutExpired:
+            print(f"[!] Command timed out after {timeout} seconds: {command}")
+            raise Exception(f"Tool execution timed out after {timeout}s")
         except subprocess.CalledProcessError as e:
             print(f"[!] Command failed: {e.stderr}")
             raise Exception(f"Tool execution failed: {e.stderr}")
+
+    def run_httpx(self, target_file):
+        """
+        Runs httpx on a list of subdomains to find live hosts.
+        Command: httpx-toolkit -l subdomains.txt -o live.txt -json
+        """
+        base_name = os.path.basename(target_file).replace('_subdomains.txt', '')
+        output_file = os.path.join(self.output_dir, f"{base_name}_live.json")
+        
+        # Determine the correct binary name
+        # Kali installs it as 'httpx-toolkit', others might use 'httpx'
+        httpx_bin = "httpx"
+        if shutil.which("httpx-toolkit"):
+            httpx_bin = "httpx-toolkit"
+        elif shutil.which("httpx"):
+            # Verify if it's the Go tool (supports -version)
+            try:
+                subprocess.run(["httpx", "-version"], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+                httpx_bin = "httpx"
+            except:
+                # Likely the python lib, keep searching or fail
+                print("[!] 'httpx' command seems to be the Python library. Please install the Go tool (httpx-toolkit).")
+                # We could try to proceed, but it will likely fail.
+                pass
+        
+        if not shutil.which(httpx_bin):
+            print("[!] httpx tool not found. Skipping live check.")
+            return []
+
+        # -l: input list
+        # -json: json output
+        # -o: output file
+        # -silent: less noise
+        command = [httpx_bin, "-l", target_file, "-json", "-o", output_file, "-silent"]
+        
+        print(f"[*] Running command: {' '.join(command)}")
+        try:
+            subprocess.run(
+                command, 
+                shell=False, 
+                check=True, 
+                stdout=subprocess.PIPE, 
+                stderr=subprocess.PIPE,
+                timeout=300 # 5 minutes
+            )
+        except subprocess.TimeoutExpired:
+            raise Exception("httpx timed out")
+        except subprocess.CalledProcessError as e:
+            print(f"[!] httpx failed: {e.stderr}")
+            raise Exception(f"httpx execution failed: {e.stderr}")
+
+        # Parse JSON results
+        live_hosts = []
+        if os.path.exists(output_file):
+            with open(output_file, 'r') as f:
+                for line in f:
+                    if line.strip():
+                        try:
+                            # httpx outputs one JSON object per line using -json
+                            data = json.loads(line)
+                            live_hosts.append(data)
+                        except:
+                            pass
+        
+        return live_hosts
 
     def run_subfinder(self, target):
         """
@@ -74,8 +143,11 @@ class ScanManager:
                 check=True, 
                 stdout=subprocess.PIPE, 
                 stderr=subprocess.PIPE,
-                text=True
+                text=True,
+                timeout=300
             )
+        except subprocess.TimeoutExpired:
+            raise Exception("Subfinder timed out")
         except subprocess.CalledProcessError as e:
             print(f"[!] Command failed: {e.stderr}")
             raise Exception(f"Tool execution failed: {e.stderr}")
@@ -110,8 +182,11 @@ class ScanManager:
                 shell=False, 
                 check=True, 
                 stdout=subprocess.PIPE, 
-                stderr=subprocess.PIPE
+                stderr=subprocess.PIPE,
+                timeout=600 # 10 minutes for Nmap
             )
+        except subprocess.TimeoutExpired:
+            raise Exception("Nmap scan timed out")
         except subprocess.CalledProcessError as e:
             print(f"[!] Command failed: {e.stderr}")
             # Nmap sometimes returns non-zero even on success if it finds nothing
@@ -157,11 +232,27 @@ class ScanManager:
             
         print(f"[*] Running Wappalyzer on: {url}")
         try:
-            webpage = WebPage.new_from_url(url, verify=False)
-            technologies = self.wappalyzer.analyze(webpage)
+            # Suppress DeprecationWarnings from Wappalyzer/pkg_resources
+            import warnings
+            with warnings.catch_warnings():
+                warnings.simplefilter("ignore")
+                webpage = WebPage.new_from_url(url, verify=False)
+                technologies = self.wappalyzer.analyze(webpage)
             return list(technologies)
         except Exception as e:
-            print(f"[!] Wappalyzer failed: {e}")
+            print(f"[!] Wappalyzer failed for {url}: {e}")
+            # Try HTTPS if HTTP failed and it wasn't specified
+            if url.startswith("http://"):
+                 try:
+                    https_url = url.replace("http://", "https://")
+                    print(f"[*] Retrying Wappalyzer with: {https_url}")
+                    with warnings.catch_warnings():
+                        warnings.simplefilter("ignore")
+                        webpage = WebPage.new_from_url(https_url, verify=False)
+                        technologies = self.wappalyzer.analyze(webpage)
+                    return list(technologies)
+                 except:
+                     pass
             # Return empty list on failure (e.g., site not reachable)
             return []
 
@@ -192,8 +283,11 @@ class ScanManager:
                 shell=False, 
                 check=False, # Don't raise on non-zero, wafw00f might behave differently
                 stdout=subprocess.PIPE, 
-                stderr=subprocess.PIPE
+                stderr=subprocess.PIPE,
+                timeout=180
             )
+        except subprocess.TimeoutExpired:
+            raise Exception("wafw00f timed out")
         except Exception as e:
             print(f"[!] wafw00f failed: {e}")
             raise

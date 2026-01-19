@@ -112,6 +112,9 @@
             <a class="navbar-brand" href="#">
                 <i class="bi bi-shield-lock-fill text-danger"></i> INTRUDER <small class="text-muted">| JARVIS</small>
             </a>
+            <div>
+                 <a href="/dashboard" class="btn btn-outline-success btn-sm"><i class="bi bi-speedometer2"></i> Mission Control</a>
+            </div>
         </div>
     </nav>
 
@@ -228,21 +231,46 @@
                             </div>
                         </div>
 
+                        <!-- Live Assets List -->
+                        <h6 class="text-white mt-3"><i class="bi bi-activity text-success"></i> Live Assets (High Value Targets)</h6>
+                        <div class="table-responsive mb-3" style="max-height: 250px; overflow-y: auto;">
+                            <table class="table table-dark table-sm table-hover border-success border-opacity-25">
+                                <thead>
+                                    <tr>
+                                        <th>URL</th>
+                                        <th>Status</th>
+                                        <th>Title</th>
+                                        <th>Tech</th>
+                                    </tr>
+                                </thead>
+                                <tbody id="liveAssetsTable">
+                                    <tr><td colspan="4" class="text-muted text-center">No live assets identified yet.</td></tr>
+                                </tbody>
+                            </table>
+                        </div>
+
                         <hr class="border-secondary">
 
                         <!-- Subdomains List -->
-                        <h6 class="text-success"><i class="bi bi-globe"></i> Subdomains Found <span class="badge bg-secondary" id="subCount">0</span></h6>
-                        <div class="table-responsive" style="max-height: 400px; overflow-y: auto;">
-                            <table class="table table-dark table-sm table-hover border-secondary">
-                                <thead>
-                                    <tr>
-                                        <th>#</th>
-                                        <th>Domain</th>
-                                    </tr>
-                                </thead>
-                                <tbody id="subdomainTable">
-                                </tbody>
-                            </table>
+                        <div class="d-flex justify-content-between align-items-center mb-2">
+                             <h6 class="text-success mb-0"><i class="bi bi-globe"></i> Subdomains Found <span class="badge bg-secondary" id="subCount">0</span></h6>
+                             <button class="btn btn-sm btn-outline-secondary" type="button" data-bs-toggle="collapse" data-bs-target="#subdomainCard" aria-expanded="true">
+                                <i class="bi bi-arrows-collapse"></i> Toggle
+                             </button>
+                        </div>
+                        <div class="collapse show" id="subdomainCard">
+                            <div class="table-responsive" style="max-height: 400px; overflow-y: auto;">
+                                <table class="table table-dark table-sm table-hover border-secondary">
+                                    <thead>
+                                        <tr>
+                                            <th>#</th>
+                                            <th>Domain</th>
+                                        </tr>
+                                    </thead>
+                                    <tbody id="subdomainTable">
+                                    </tbody>
+                                </table>
+                            </div>
                         </div>
 
                     </div>
@@ -284,6 +312,23 @@
                 if (data.result) {
                     launchBtn.disabled = false;
                     progressBar.classList.remove('progress-bar-animated');
+                    
+                    // Add View Dashboard Button
+                     const container = document.getElementById('systemLogs'); // Assuming ID is systemLogs based on visual context, let me verify
+                     // The visual log area in previous attachment was id="terminal" inside a col. 
+                     // Let's act on the button container or similar.
+                     
+                     // Helper: notify success
+                     log("Scan Complete. Redirecting to Mission Control recommended.", "success");
+                     
+                     // Let's enable a big button if I can find where to put it. 
+                     // For now, I will append it to the log area.
+                     const term = document.getElementById('terminal');
+                     const link = document.createElement('a');
+                     link.href = '/dashboard';
+                     link.className = 'btn btn-outline-success btn-sm w-100 mt-2';
+                     link.innerHTML = '>> ACCESS MISSION CONTROL <<';
+                     term.appendChild(link);
                 }
             } else if (data.status.includes('Error')) {
                 launchBtn.disabled = false;
@@ -323,6 +368,19 @@
                         <span><span class="text-warning">${p.port}</span>/${p.protocol}</span>
                         <span class="badge bg-secondary">${p.service}</span>
                     </li>`
+                ).join('');
+            }
+
+            // Render Live Assets
+            const liveTable = document.getElementById('liveAssetsTable');
+            if(res.live_assets && res.live_assets.length > 0) {
+                liveTable.innerHTML = res.live_assets.map(asset => 
+                    `<tr>
+                        <td class="font-monospace text-success"><a href="${asset.url || asset.input}" target="_blank" class="text-decoration-none text-success">${asset.url || asset.input} <i class="bi bi-box-arrow-up-right small"></i></a></td>
+                        <td><span class="badge ${asset.status_code == 200 ? 'bg-success' : 'bg-warning'}">${asset.status_code}</span></td>
+                        <td class="small text-muted text-truncate" style="max-width: 150px;">${asset.title || '-'}</td>
+                        <td class="small">${asset.tech ? asset.tech.join(', ') : '-'}</td>
+                    </tr>`
                 ).join('');
             }
 

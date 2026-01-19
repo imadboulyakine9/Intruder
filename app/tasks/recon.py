@@ -1,6 +1,8 @@
 from app.celery_worker import celery_app, socketio
 from app.scan_manager import ScanManager
-from app.db import get_subdomains_collection, get_scans_collection, get_technologies_collection, get_vulnerabilities_collection # Assuming we might use vulnerabilities later
+from app.db import get_subdomains_collection, get_scans_collection, get_technologies_collection, get_vulnerabilities_collection, get_assets_collection
+import datetime
+import os
 import datetime
 
 @celery_app.task(bind=True)
@@ -156,80 +158,155 @@ def tech_detection_task(self, target):
 @celery_app.task(bind=True)
 def workflow_task(self, target, tools):
     """
-    Orchestrator task to run multiple recon tools sequentially or in parallel.
-    tools: list of strings ['subfinder', 'nmap', 'wappalyzer']
+    Orchestrator task with Smart Filtering and WAF awareness.
     """
     try:
         results = {}
-        total_steps = len(tools)
+        total_steps = len(tools) # Approximate
         current_step = 0
+        manager = ScanManager()
+        is_protected = False
+        scan_id = self.request.id
         
-        socketio.emit('task_update', {'status': f'Starting Recon on {target}', 'percent': 1})
+        # Create Master Scan Record
+        get_scans_collection().insert_one({
+            "target": target,
+            "scan_id": scan_id,
+            "type": "master",
+            "status": "scanning",
+            "timestamp": datetime.datetime.utcnow(),
+            "tools": tools
+        })
         
+        socketio.emit('task_update', {'status': f'Starting Smart Recon on {target}', 'percent': 1})
+
+        # 1. WAF Check (Priority)
+        if 'wafw00f' in tools:
+            current_step += 1
+            socketio.emit('task_update', {'status': 'Checking for WAF...', 'percent': 10})
+            waf_res = manager.run_wafw00f(target)
+            results['waf'] = waf_res
+            
+            # Simple heuristic for protection
+            waf_str = str(waf_res).lower()
+            if 'cloudflare' in waf_str or 'akamai' in waf_str or 'imperva' in waf_str:
+                is_protected = True
+                socketio.emit('task_update', {'status': f'⚠️ WAF Detected ({waf_res}). Adjusting scan intensity.', 'percent': 15})
+            
+            # Emit intermediate result
+            socketio.emit('task_update', {
+                'status': 'WAF Check complete.', 
+                'percent': 15, 
+                'partial_result': {'waf': waf_res}
+            })
+
+        # 2. Subdomain & Smart Filter
+        live_assets = []
         if 'subfinder' in tools:
             current_step += 1
-            socketio.emit('task_update', {'status': f'Running Subfinder ({current_step}/{total_steps})...', 'percent': int((current_step/total_steps)*30)})
-            manager = ScanManager()
+            socketio.emit('task_update', {'status': 'Enumerating Subdomains...', 'percent': 20})
             
             subdomains = manager.run_subfinder(target)
             results['subdomains'] = subdomains
             
-            # Save
+            # Smart Filter (httpx)
+            socketio.emit('task_update', {'status': f'Found {len(subdomains)} candidates. Verifying live assets...', 'percent': 40})
+            
+            # Construct path to subfinder output for httpx
+            sub_file = os.path.join(manager.output_dir, f"{target}_subdomains.txt")
+            live_assets = manager.run_httpx(sub_file)
+            
+            results['live_assets'] = live_assets
+            
+            # Save Raw Subdomains
             get_subdomains_collection().insert_one({
                 "target": target, 
                 "scan_id": self.request.id, 
-                "subdomains": subdomains,
+                "subdomains": subdomains, 
                 "timestamp": datetime.datetime.utcnow()
             })
             
-            # QoL: Emit intermediate result immediately
+            # Save Live Assets (Asset-Centric)
+            assets_col = get_assets_collection()
+            for asset in live_assets:
+                # asset is a dict from httpx json
+                # Ensure we have a domain field, httpx gives 'input' or 'url'
+                domain = asset.get('input', asset.get('url', ''))
+                if domain:
+                     assets_col.update_one(
+                         {"domain": domain}, 
+                         {"$set": {
+                             "parent_domain": target, 
+                             "last_seen": datetime.datetime.utcnow(),
+                             "ip": asset.get('host'),
+                             "tech": asset.get('tech', []), # httpx sometimes has tech
+                             "status_code": asset.get('status_code')
+                         }}, 
+                         upsert=True
+                     )
+
             socketio.emit('task_update', {
-                'status': f'Subfinder finished. Found {len(subdomains)} subdomains.',
-                'percent': int((current_step/total_steps)*30),
-                'partial_result': {'subdomains': subdomains} 
-            })
-            
-        if 'wafw00f' in tools:
-            current_step += 1
-            socketio.emit('task_update', {'status': f'Running WAF Detection ({current_step}/{total_steps})...', 'percent': int((current_step/total_steps)*45)})
-            manager = ScanManager()
-            waf_res = manager.run_wafw00f(target)
-            results['waf'] = waf_res
-            
-            # Emit intermediate result
-            socketio.emit('task_update', {
-                'status': 'WAF Check complete.',
-                'percent': int((current_step/total_steps)*45),
-                'partial_result': {'waf': waf_res}
+                'status': f'Smart Filter: {len(live_assets)} live assets identified from {len(subdomains)} subdomains.',
+                'percent': 50,
+                'partial_result': {'subdomains': subdomains, 'live_assets': live_assets} 
             })
 
+        # 3. Nmap (WAF Aware)
         if 'nmap' in tools:
             current_step += 1
-            socketio.emit('task_update', {'status': f'Running Nmap ({current_step}/{total_steps})...', 'percent': int((current_step/total_steps)*60)})
-            manager = ScanManager()
-            nmap_res = manager.run_nmap(target)
-            results['nmap'] = nmap_res
+            if is_protected:
+                socketio.emit('task_update', {'status': 'Skipping aggressive Nmap on main target due to WAF.', 'percent': 60})
+                # Return a dummy object that matches the frontend's expected schema
+                results['nmap'] = [{
+                    "port": "WAF",
+                    "protocol": "BLOCK", 
+                    "service": "Aggressive Scan Skipped"
+                }]
+            else:
+                socketio.emit('task_update', {'status': 'Running Nmap on main target...', 'percent': 60})
+                nmap_res = manager.run_nmap(target)
+                results['nmap'] = nmap_res
 
+                get_scans_collection().insert_one({
+                    "target": target,
+                    "scan_id": self.request.id,
+                    "type": "nmap",
+                    "results": nmap_res,
+                    "timestamp": datetime.datetime.utcnow()
+                })
+                
+                socketio.emit('task_update', {
+                    'status': 'Nmap finished.',
+                    'percent': 70,
+                    'partial_result': {'nmap': nmap_res} 
+                })
             
-            get_scans_collection().insert_one({
-                "target": target,
-                "scan_id": self.request.id,
-                "type": "nmap",
-                "results": nmap_res,
-                "timestamp": datetime.datetime.utcnow()
-            })
-            
-            socketio.emit('task_update', {
-                'status': 'Nmap finished.',
-                'percent': int((current_step/total_steps)*60),
-                'partial_result': {'nmap': nmap_res} 
-            })
-            
+        # 4. Tech Detection (Wappalyzer)
         if 'wappalyzer' in tools:
             current_step += 1
-            socketio.emit('task_update', {'status': f'Running Wappalyzer ({current_step}/{total_steps})...', 'percent': int((current_step/total_steps)*90)})
-            manager = ScanManager()
-            tech_res = manager.run_wappalyzer(target)
+            socketio.emit('task_update', {'status': 'Analyzing Technologies...', 'percent': 90})
+            
+            # IMPROVEMENT: Use live assets if available, otherwise fallback to target
+            targets_to_scan = [target]
+            if 'live_assets' in results and results['live_assets']:
+                # extracting URLs from live_assets
+                # live_assets is a list of dicts from httpx
+                targets_to_scan = [asset.get('url', asset.get('input')) for asset in results['live_assets']]
+                # Limit to top 3 to save time/resources if list is huge
+                targets_to_scan = targets_to_scan[:3] 
+                if target not in targets_to_scan:
+                    targets_to_scan.insert(0, target)
+            
+            all_tech = set()
+            for t_url in targets_to_scan:
+                if not t_url: continue
+                try:
+                    t_res = manager.run_wappalyzer(t_url)
+                    all_tech.update(t_res)
+                except:
+                    pass
+            
+            tech_res = list(all_tech)
             results['technologies'] = tech_res
             
             for t in tech_res:
@@ -242,19 +319,33 @@ def workflow_task(self, target, tools):
 
             socketio.emit('task_update', {
                 'status': 'Tech Detect finished.',
-                'percent': int((current_step/total_steps)*90),
+                'percent': 100,
                 'partial_result': {'technologies': tech_res} 
             })
 
         socketio.emit('task_update', {
             'status': 'All scans completed successfully!',
             'percent': 100,
-            'result': results  # Send full results to frontend to render
+            'result': results
         })
+        
+        # Update Master Scan Record
+        get_scans_collection().update_one(
+            {"scan_id": scan_id, "type": "master"},
+            {"$set": {"status": "scanned", "results_summary": results}}
+        )
         
         return {'status': 'COMPLETED', 'results': results}
 
     except Exception as e:
         socketio.emit('task_update', {'status': f'Error: {str(e)}', 'percent': 0})
+        # Update Master Scan Record on Failure
+        try:
+             get_scans_collection().update_one(
+                {"scan_id": self.request.id, "type": "master"},
+                {"$set": {"status": "failed", "error": str(e)}}
+            )
+        except:
+            pass
         raise e
 
