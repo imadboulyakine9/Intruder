@@ -3,84 +3,509 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Intruder - Mission Control</title>
-    <!-- Bootstrap 5 CSS -->
+    <title>Jarvis - Mission Control</title>
+    <!-- Fonts -->
+    <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;700&family=Rajdhani:wght@500;600;700&display=swap" rel="stylesheet">
+    <!-- CSS -->
     <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
-    <!-- Socket.IO -->
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.7.2/font/bootstrap-icons.css">
+    
+    <!-- Scripts -->
     <script src="https://cdnjs.cloudflare.com/ajax/libs/socket.io/4.0.1/socket.io.js"></script>
-</head>
-<body class="bg-dark text-light">
-    <div class="container mt-5">
-        <div class="row">
-            <div class="col-md-8 offset-md-2">
-                <div class="card bg-secondary text-white">
-                    <div class="card-header">
-                        <h3><i class="bi bi-robot"></i> Jarvis Control Panel</h3>
-                    </div>
-                    <div class="card-body text-center">
-                        <h5 class="card-title">System Status: Online</h5>
-                        <p class="card-text">Verification of Async Task Queue & Real-time Sockets.</p>
-                        
-                        <button id="start-btn" class="btn btn-primary btn-lg mt-3">
-                            🚀 Launch Hello World Task
-                        </button>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/cytoscape/3.23.0/cytoscape.min.js"></script>
+    
+    <style>
+        :root {
+            --bg-dark: #0a0a0a;         /* Deep Black */
+            --bg-panel: #111111;        /* Slightly Lighter Black */
+            --border-color: #333;
+            --accent-primary: #00ff9d;  /* Hacker Green */
+            --accent-secondary: #007bff; /* Tech Blue */
+            --accent-danger: #ff0055;   /* Alert Red */
+            --text-main: #e0e0e0;
+            --text-muted: #888;
+        }
+        
+        body { 
+            background-color: var(--bg-dark); 
+            color: var(--text-main); 
+            font-family: 'Rajdhani', sans-serif;
+            height: 100vh;
+            overflow: hidden; /* App feel */
+        }
+        
+        /* Typography */
+        h1, h2, h3, h4, .font-mono { font-family: 'JetBrains Mono', monospace; }
+        .text-accent { color: var(--accent-primary); }
+        
+        /* Layout */
+        .wrapper { display: flex; height: 100vh; }
+        .sidebar {
+            width: 300px;
+            background-color: #050505;
+            border-right: 1px solid var(--border-color);
+            display: flex;
+            flex-direction: column;
+        }
+        .main-content {
+            flex: 1;
+            background-color: var(--bg-dark);
+            overflow-y: auto;
+            display: flex;
+            flex-direction: column;
+        }
 
-                        <div class="mt-4">
-                            <label>Task Progress:</label>
-                            <div class="progress" style="height: 25px;">
-                                <div id="progress-bar" class="progress-bar progress-bar-striped progress-bar-animated bg-success" 
-                                     role="progressbar" style="width: 0%">0%</div>
+        /* Components */
+        .brand-header {
+            padding: 1rem;
+            border-bottom: 1px solid var(--border-color);
+            background: #000;
+        }
+        
+        .target-list {
+            flex: 1;
+            overflow-y: auto;
+            padding: 0;
+        }
+        .target-item {
+            padding: 10px 15px;
+            border-bottom: 1px solid #222;
+            cursor: pointer;
+            transition: all 0.2s;
+            display: block;
+            text-decoration: none;
+            color: var(--text-main);
+        }
+        .target-item:hover, .target-item.active {
+            background-color: #1a1a1a;
+            border-left: 3px solid var(--accent-primary);
+        }
+        .target-item h6 { margin: 0; font-weight: 700; }
+        .target-item small { color: var(--text-muted); font-size: 0.75rem; }
+
+        .btn-add-target {
+            margin: 1rem;
+            width: calc(100% - 2rem);
+            background-color: var(--accent-primary);
+            color: #000;
+            font-weight: bold;
+            border: none;
+            text-transform: uppercase;
+        }
+        .btn-add-target:hover { background-color: #00cc7a; color: #000; }
+
+        /* Tabs */
+        .nav-tabs { border-bottom: 1px solid var(--border-color); }
+        .nav-link {
+            color: var(--text-muted);
+            border: none;
+            border-bottom: 2px solid transparent;
+            font-family: 'JetBrains Mono', monospace;
+            text-transform: uppercase;
+            font-size: 0.9rem;
+        }
+        .nav-link.active {
+            background-color: transparent !important;
+            color: var(--accent-primary) !important;
+            border-bottom: 2px solid var(--accent-primary);
+        }
+        .nav-link:hover { color: #fff; }
+
+        /* Terminal */
+        #attack-terminal {
+            background-color: #030303;
+            color: var(--accent-primary);
+            font-family: 'JetBrains Mono', monospace;
+            font-size: 0.85rem;
+            padding: 1rem;
+            height: 400px;
+            overflow-y: auto;
+            border: 1px solid var(--border-color);
+        }
+        
+        /* Modal */
+        .modal-content {
+            background-color: var(--bg-panel);
+            border: 1px solid var(--border-color);
+            color: var(--text-main);
+        }
+        .modal-header { border-bottom: 1px solid var(--border-color); }
+        .modal-footer { border-top: 1px solid var(--border-color); }
+        .form-control, .form-check-input {
+            background-color: #000;
+            border: 1px solid #333;
+            color: #fff;
+        }
+        .form-control:focus {
+            background-color: #000;
+            color: #fff;
+            border-color: var(--accent-primary);
+            box-shadow: none;
+        }
+    </style>
+</head>
+<body>
+    <div class="wrapper">
+        <!-- Sidebar -->
+        <div class="sidebar">
+            <div class="brand-header">
+                <a href="/" class="text-decoration-none">
+                    <h5 class="mb-0 text-white font-mono">> JARVIS <span class="text-accent">OS</span></h5>
+                </a>
+            </div>
+            
+            <button class="btn btn-add-target" data-bs-toggle="modal" data-bs-target="#reconModal">
+                <i class="bi bi-plus-lg"></i> New Target
+            </button>
+            
+            <div class="target-list">
+                <div class="px-3 py-2 text-muted font-mono"><small>ASSETS</small></div>
+                {% for scan in scans %}
+                <a href="/?scan_id={{ scan.scan_id }}" 
+                   class="target-item {% if current_scan and scan.scan_id == current_scan.scan_id %}active{% endif %}">
+                    <div class="d-flex justify-content-between align-items-center">
+                        <h6>{{ scan.target }}</h6>
+                        <span class="badge 
+                            {% if scan.status == 'scanned' %}bg-secondary
+                            {% elif scan.status == 'analyzed' %}bg-info text-dark
+                            {% elif scan.status == 'attacking' %}bg-danger
+                            {% else %}bg-dark{% endif %} 
+                            rounded-pill" style="font-size:0.6rem;">
+                            {{ scan.status|upper }}
+                        </span>
+                    </div>
+                    <small>{{ scan.timestamp.strftime('%Y-%m-%d %H:%M') }}</small>
+                </a>
+                {% endfor %}
+            </div>
+            
+            <div class="p-3 border-top border-secondary">
+                 <small class="text-muted"><i class="bi bi-circle-fill text-success" style="font-size: 0.6rem;"></i> System Online</small>
+            </div>
+        </div>
+
+        <!-- Main Content -->
+        <main class="main-content">
+            {% if current_scan %}
+            <!-- Top Header -->
+            <div class="p-4 border-bottom border-secondary bg-black d-flex justify-content-between align-items-center">
+                <div>
+                    <h2 class="mb-1 text-white font-mono">{{ current_scan.target }}</h2>
+                    <span class="font-mono text-muted">ID: {{ current_scan.scan_id[:8] }}...</span>
+                </div>
+                
+                <!-- Kill Chain Widget -->
+                <div class="d-flex align-items-center bg-dark rounded p-2 border border-secondary">
+                    <div class="px-3 text-center border-end border-secondary">
+                        <small class="d-block text-muted" style="font-size:0.65rem">PHASE 1</small>
+                        <span class="fw-bold fs-6 {% if current_scan.status in ['scanned', 'analyzed', 'attacking'] %}text-success{% else %}text-muted{% endif %}">RECON</span>
+                    </div>
+                     <div class="px-3 text-center border-end border-secondary">
+                        <small class="d-block text-muted" style="font-size:0.65rem">PHASE 2</small>
+                        <span class="fw-bold fs-6 {% if current_scan.status in ['analyzed', 'attacking'] %}text-info{% else %}text-muted{% endif %}">ANALYSIS</span>
+                    </div>
+                     <div class="px-3 text-center">
+                        <small class="d-block text-muted" style="font-size:0.65rem">PHASE 3</small>
+                        <span class="fw-bold fs-6 {% if current_scan.status == 'attacking' %}text-danger{% else %}text-muted{% endif %}">ATTACK</span>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Tabs -->
+            <div class="bg-panel px-4 pt-3">
+                <ul class="nav nav-tabs" id="myTab" role="tablist">
+                    <li class="nav-item" role="presentation">
+                        <button class="nav-link active" id="overview-tab" data-bs-toggle="tab" data-bs-target="#overview" type="button" role="tab"><i class="bi bi-diagram-3"></i> Attack Surface</button>
+                    </li>
+                    <li class="nav-item" role="presentation">
+                        <button class="nav-link" id="vulns-tab" data-bs-toggle="tab" data-bs-target="#vulns" type="button" role="tab"><i class="bi bi-bug"></i> Vulnerabilities</button>
+                    </li>
+                    <li class="nav-item" role="presentation">
+                        <button class="nav-link" id="terminal-tab" data-bs-toggle="tab" data-bs-target="#terminal-pane" type="button" role="tab"><i class="bi bi-terminal"></i> Live Terminal</button>
+                    </li>
+                </ul>
+            </div>
+
+            <!-- Tab Content -->
+            <div class="tab-content flex-grow-1 p-4" id="myTabContent">
+                
+                <!-- 1. Overview Tab -->
+                <div class="tab-pane fade show active" id="overview" role="tabpanel">
+                    <div class="row h-100">
+                        <!-- Graph -->
+                        <div class="col-md-9 h-100 d-flex flex-column">
+                            <div class="card bg-panel border-secondary flex-grow-1">
+                                <div class="card-body p-0 position-relative" style="background: #0d0d0d;">
+                                    <div id="cy" style="width: 100%; height: 100%; position: absolute;"></div>
+                                </div>
                             </div>
                         </div>
+                        
+                        <!-- Quick Stats / Actions -->
+                        <div class="col-md-3">
+                            <div class="card bg-panel border-secondary mb-3">
+                                <div class="card-header font-mono text-uppercase">Actions</div>
+                                <div class="card-body d-grid gap-2">
+                                     <button class="btn btn-outline-primary" onclick="analyzeTarget('{{ current_scan.target }}', '{{ current_scan.scan_id }}')">
+                                        <i class="bi bi-cpu"></i> Run Auto-Analysis
+                                    </button>
+                                    <button class="btn btn-outline-danger" disabled>
+                                        <i class="bi bi-stop-circle"></i> Stop Scan
+                                    </button>
+                                </div>
+                            </div>
 
-                        <div id="logs" class="mt-4 text-start font-monospace bg-black p-3 rounded" style="height: 200px; overflow-y: auto; border: 1px solid #444;">
-                            <div class="text-muted">> System ready...</div>
+                            <div class="card bg-panel border-secondary">
+                                <div class="card-header font-mono text-uppercase">Metadata</div>
+                                <ul class="list-group list-group-flush">
+                                    <li class="list-group-item bg-transparent text-white border-secondary d-flex justify-content-between">
+                                        <span>Technology</span>
+                                        <span class="badge bg-secondary">{{ current_scan.results|length if current_scan.results else 0 }}</span>
+                                    </li>
+                                     <li class="list-group-item bg-transparent text-white border-secondary d-flex justify-content-between">
+                                        <span>Attackable URLs</span>
+                                        <span class="badge bg-danger">{{ attackable_urls|length }}</span>
+                                    </li>
+                                </ul>
+                            </div>
                         </div>
                     </div>
+                </div>
+
+                <!-- 2. Vulns Tab -->
+                <div class="tab-pane fade" id="vulns" role="tabpanel">
+                    {% if suggestions %}
+                    <h5 class="text-white mb-3 font-mono">Suggested Attack Vectors</h5>
+                    <div class="row">
+                        {% for suggestion in suggestions %}
+                        <div class="col-md-4 mb-3">
+                            <div class="card border-danger bg-transparent">
+                                <div class="card-body">
+                                    <h5 class="card-title text-danger font-mono"><i class="bi bi-crosshair"></i> {{ suggestion.tool }}</h5>
+                                    <p class="card-text text-muted small">{{ suggestion.reason }}</p>
+                                    <button onclick="launchAttack('{{ current_scan.scan_id }}', '{{ suggestion.tool }}')" 
+                                            class="btn btn-danger btn-sm w-100 font-mono">
+                                        LAUNCH ATTACK
+                                    </button>
+                                </div>
+                            </div>
+                        </div>
+                        {% endfor %}
+                    </div>
+                    {% else %}
+                    <div class="text-center text-muted mt-5">
+                        <i class="bi bi-search display-4"></i>
+                        <p class="mt-3">No suggestions yet. Run Analysis first.</p>
+                    </div>
+                    {% endif %}
+                </div>
+
+                <!-- 3. Terminal Tab -->
+                <div class="tab-pane fade" id="terminal-pane" role="tabpanel">
+                    <div id="attack-terminal">
+                        <div class="text-muted">> Terminal ready... waiting for input.</div>
+                    </div>
+                </div>
+
+            </div>
+            
+            {% else %}
+            <!-- Empty State -->
+            <div class="d-flex flex-column align-items-center justify-content-center h-100 text-muted">
+                <i class="bi bi-shield-lock display-1 mb-3" style="color: #222;"></i>
+                <h4>No Target Selected</h4>
+                <p>Select a target from the sidebar or start a new reconnaissance mission.</p>
+                <button class="btn btn-add-target" style="width: 200px;" data-bs-toggle="modal" data-bs-target="#reconModal">
+                    Start New Scan
+                </button>
+            </div>
+            {% endif %}
+        </main>
+    </div>
+
+    <!-- New Scan Modal -->
+    <div class="modal fade" id="reconModal" tabindex="-1">
+        <div class="modal-dialog modal-dialog-centered">
+            <div class="modal-content">
+                <div class="modal-header">
+                    <h5 class="modal-title font-mono">> INITIALIZE RECON</h5>
+                    <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal"></button>
+                </div>
+                <div class="modal-body">
+                    <form id="reconForm">
+                        <div class="mb-3">
+                            <label class="form-label text-accent">Target Domain</label>
+                            <input type="text" class="form-control font-mono" id="targetInput" placeholder="example.com" required>
+                        </div>
+                        <div class="mb-3">
+                            <label class="form-label">Modules</label>
+                            <div class="form-check">
+                                <input class="form-check-input" type="checkbox" value="subfinder" id="checkSub" checked>
+                                <label class="form-check-label" for="checkSub">Subdomain Enumeration</label>
+                            </div>
+                            <div class="form-check">
+                                <input class="form-check-input" type="checkbox" value="nmap" id="checkNmap" checked>
+                                <label class="form-check-label" for="checkNmap">Port Scanning (Nmap)</label>
+                            </div>
+                            <div class="form-check">
+                                <input class="form-check-input" type="checkbox" value="wappalyzer" id="checkWap" checked>
+                                <label class="form-check-label" for="checkWap">Tech Detection</label>
+                            </div>
+                        </div>
+                    </form>
+                </div>
+                <div class="modal-footer">
+                    <button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal">Cancel</button>
+                    <button type="button" class="btn btn-primary" id="startScanBtn">LAUNCH SCAN</button>
                 </div>
             </div>
         </div>
     </div>
 
+    <!-- Scripts -->
+    <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
     <script>
+        // --- Global Variables ---
         const socket = io();
-        const logs = document.getElementById('logs');
-        const progressBar = document.getElementById('progress-bar');
-        const btn = document.getElementById('start-btn');
-
-        function log(message) {
-            const div = document.createElement('div');
-            div.textContent = `> ${message}`;
-            logs.appendChild(div);
-            logs.scrollTop = logs.scrollHeight;
-        }
-
-        // Listen for task updates
-        socket.on('task_update', function(msg) {
-            // Only update if it pertains to our progress
-            if (msg.percent) {
-                progressBar.style.width = msg.percent + '%';
-                progressBar.textContent = msg.percent + '%';
-                log(`Progress: ${msg.percent}% - ${msg.status}`);
-            }
-        });
-
-        // Button click handler
-        btn.addEventListener('click', async () => {
+        const scanId = '{{ current_scan.scan_id if current_scan else "" }}';
+        
+        // --- 1. Recon Form Logic ---
+        document.getElementById('startScanBtn').addEventListener('click', async () => {
+            const target = document.getElementById('targetInput').value;
+            if(!target) return alert("Target Required");
+            
+            const tools = [];
+            if(document.getElementById('checkSub').checked) tools.push('subfinder');
+            if(document.getElementById('checkNmap').checked) tools.push('nmap');
+            if(document.getElementById('checkWap').checked) tools.push('wappalyzer');
+            
+            const btn = document.getElementById('startScanBtn');
             btn.disabled = true;
-            log('Initiating launch sequence...');
-            progressBar.style.width = '0%';
-            progressBar.textContent = '0%';
+            btn.textContent = "DEPLOYING...";
             
             try {
-                const response = await fetch('/start-task', { method: 'POST' });
-                const data = await response.json();
-                log(`Task dispatched! ID: ${data.task_id}`);
-            } catch (error) {
-                log(`Error: ${error}`);
+                const res = await fetch('/start-recon', {
+                    method: 'POST',
+                    headers: {'Content-Type': 'application/json'},
+                    body: JSON.stringify({ target, tools })
+                });
+                const data = await res.json();
+                if(res.ok) {
+                    window.location.href = '/?scan_id=' + data.task_id; // Reload to new scan
+                }
+            } catch(e) {
+                alert("Error: " + e);
                 btn.disabled = false;
             }
         });
+
+        // --- 2. Terminal Logic ---
+        const terminal = document.getElementById('attack-terminal');
+        
+        function appendLog(line, tool) {
+            if (!terminal) return;
+            const div = document.createElement('div');
+            if (line.startsWith('[')) div.textContent = line;
+            else div.textContent = `[${tool}] ${line}`;
+            terminal.appendChild(div);
+            terminal.scrollTop = terminal.scrollHeight;
+        }
+
+        async function loadLogs() {
+            if(!scanId || !terminal) return;
+            try {
+                const res = await fetch('/api/logs/' + scanId);
+                const data = await res.json();
+                if(data.logs) {
+                    terminal.innerHTML = ''; 
+                    data.logs.forEach(line => {
+                         const div = document.createElement('div');
+                         div.textContent = line;
+                         terminal.appendChild(div);
+                    });
+                    terminal.scrollTop = terminal.scrollHeight;
+                }
+            } catch(e) { console.error(e); }
+        }
+        loadLogs();
+
+        socket.on('tool_output', (data) => {
+             if (data.scan_id === scanId) appendLog(data.line, data.tool);
+        });
+        
+        socket.on('task_update', (data) => {
+             if (data.scan_id === scanId && terminal) {
+                 const div = document.createElement('div');
+                 div.style.color = '#ffff00';
+                 div.textContent = `[SYSTEM] ${data.status} (${data.percent}%)`;
+                 terminal.appendChild(div);
+                 terminal.scrollTop = terminal.scrollHeight;
+             }
+        });
+
+        // --- 3. Analysis & Attacks ---
+        async function analyzeTarget(target, sId) {
+            if(confirm('Run Analysis Engine?')) {
+                const res = await fetch('/api/analyze', {
+                    method: 'POST',
+                    headers: {'Content-Type': 'application/json'},
+                    body: JSON.stringify({target: target, scan_id: sId})
+                });
+                if(res.ok) window.location.reload();
+            }
+        }
+
+        async function launchAttack(sId, tool) {
+            if(confirm('Launch ' + tool + '?')) {
+                // Switch to terminal tab
+                const tab = new bootstrap.Tab(document.querySelector('#terminal-tab'));
+                tab.show();
+                
+                const res = await fetch('/api/launch-attack', {
+                    method: 'POST',
+                    headers: {'Content-Type': 'application/json'},
+                    body: JSON.stringify({scan_id: sId, tool: tool})
+                });
+            }
+        }
+
+        // --- 4. Cytoscape Graph ---
+        // Render graph only when tab is visible to calculate dimensions correctly
+        let graphRendered = false;
+        const graphTabEl = document.querySelector('#overview-tab');
+        
+        if(scanId) {
+            // Initial render if active
+            renderGraph();
+        }
+
+        async function renderGraph() {
+           if (!document.getElementById('cy') || !scanId) return;
+           
+           try {
+                const res = await fetch('/api/graph/' + scanId);
+                const elements = await res.json();
+                
+                if (elements.length === 0) {
+                    document.getElementById('cy').innerHTML = '<div class="text-center text-muted pt-5">No graph data.</div>';
+                    return;
+                }
+
+                const cy = cytoscape({
+                    container: document.getElementById('cy'),
+                    elements: elements,
+                    style: [
+                        { selector: 'node', style: { 'background-color': '#444', 'label': 'data(label)', 'color': '#ccc', 'text-valign': 'center', 'text-halign': 'center', 'font-size': '10px', 'width': 30, 'height': 30 } },
+                        { selector: 'node[type="root"]', style: { 'background-color': '#00ff9d', 'color': '#000', 'width': 50, 'height': 50, 'font-weight': 'bold' } },
+                        { selector: 'node[type="subdomain"]', style: { 'background-color': '#007bff', 'width': 20, 'height': 20 } },
+                        { selector: 'node[type="vuln"]', style: { 'background-color': '#ff0055', 'width': 40, 'height': 40 } },
+                        { selector: 'node[type="tech"]', style: { 'background-color': '#ffc107', 'width': 25, 'height': 25, 'color': '#000' } },
+                        { selector: 'edge', style: { 'width': 1, 'line-color': '#333', 'target-arrow-color': '#333', 'target-arrow-shape': 'triangle', 'curve-style': 'bezier' } }
+                    ],
+                    layout: { name: 'concentric', concentric: (n) => n.data('type') === 'root' ? 2 : 1, levelWidth: () => 1, padding: 10 }
+                });
+            } catch(e) { console.error("Graph Error:", e); }
+        }
     </script>
 </body>
 </html>

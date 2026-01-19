@@ -6,6 +6,7 @@ Handles connection pooling and database initialization.
 from pymongo import MongoClient
 from pymongo.errors import ConnectionFailure, ServerSelectionTimeoutError
 import os
+import redis
 from dotenv import load_dotenv
 
 load_dotenv()
@@ -14,6 +15,13 @@ load_dotenv()
 MONGO_URI = os.getenv("MONGO_URI", "mongodb://localhost:27017/")
 DB_NAME = os.getenv("DB_NAME", "intruder")
 TIMEOUT = 5000  # milliseconds
+
+# Redis Config
+REDIS_HOST = os.getenv("REDIS_HOST", "localhost")
+REDIS_PORT = os.getenv("REDIS_PORT", 6379)
+
+# Redis Client
+redis_client = redis.Redis(host=REDIS_HOST, port=REDIS_PORT, db=0, decode_responses=True)
 
 class MongoDatabase:
     """MongoDB connection manager with singleton pattern."""
@@ -142,6 +150,9 @@ def get_attackable_urls_collection():
 
 # Export main functions
 db = MongoDatabase()
+
+def get_redis_client():
+    return redis_client
 
 
 if __name__ == "__main__":

@@ -8,6 +8,7 @@
     <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.7.2/font/bootstrap-icons.css">
     <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;700&family=Rajdhani:wght@500;600;700&display=swap" rel="stylesheet">
     <script src="https://cdnjs.cloudflare.com/ajax/libs/socket.io/4.0.1/socket.io.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/cytoscape/3.23.0/cytoscape.min.js"></script>
     <style>
         :root {
             --bg-dark: #0a0a0a;
@@ -79,19 +80,36 @@
 
                         <!-- Action Bar -->
                         <div class="mb-4">
-                            {% if current_scan.status == 'scanned' %}
-                            <button onclick="analyzeTarget('{{ current_scan.target }}', '{{ current_scan.scan_id }}')" class="btn btn-warning">
-                                <i class="bi bi-cpu"></i> Run Analysis Engine
-                            </button>
-                            {% elif current_scan.status == 'analyzed' or current_scan.status == 'attacking' %}
-                            <div class="alert alert-dark border-secondary">
-                                <i class="bi bi-check-circle text-success"></i> Analysis Complete. Showing suggested vectors.
+                            <div class="d-flex justify-content-between align-items-center">
+                                <div>
+                                    <button class="btn btn-primary me-2" onclick="analyzeTarget('{{ current_scan.target }}', '{{ current_scan.scan_id }}')">
+                                        <i class="bi bi-cpu"></i> Run Auto-Analysis
+                                    </button>
+                                    
+                                    <!-- Kill Chain Progress -->
+                                    <span class="ms-3 text-muted border border-secondary p-2 rounded bg-black" style="font-family: 'JetBrains Mono'; font-size: 0.85rem;">
+                                        KILL CHAIN: 
+                                        <span class="{% if current_scan.status in ['scanned', 'analyzed', 'attacking'] %}text-success{% else %}text-secondary{% endif %} fw-bold">[RECON]</span> &rarr;
+                                        <span class="{% if current_scan.status in ['analyzed', 'attacking'] %}text-info{% else %}text-secondary{% endif %} fw-bold">[WEAPONIZATION]</span> &rarr;
+                                        <span class="{% if current_scan.status in ['attacking'] %}text-danger{% else %}text-secondary{% endif %} fw-bold">[ATTACK]</span>
+                                    </span>
+                                </div>
+                                <div>
+                                    <!-- Placeholder for stop, need task id logic -->
+                                    <button class="btn btn-outline-danger btn-sm" disabled title="Not implemented for global scan yet">STOP SCAN</button>
+                                </div>
                             </div>
-                            {% else %}
-                            <div class="alert alert-info border-secondary">
-                                Scan in progress...
+                        </div>
+
+                        <!-- Network Graph -->
+                        <div class="card mb-4 border-secondary position-relative">
+                            <div class="card-header bg-dark text-white text-uppercase d-flex justify-content-between">
+                                <span><i class="bi bi-diagram-3"></i> Attack Surface Graph</span>
+                                <small class="text-muted">Cytoscape.js Visualization</small>
                             </div>
-                            {% endif %}
+                            <div class="card-body p-0" style="background-color: #0d0d0d; min-height: 400px;">
+                                <div id="cy" style="height: 400px; width: 100%;"></div>
+                            </div>
                         </div>
 
                         <!-- Attack Surface Data -->
@@ -184,22 +202,51 @@
     <script>
         const socket = io();
         const terminal = document.getElementById('attack-terminal');
+        const scanId = '{{ current_scan.scan_id if current_scan else "" }}';
 
+        // 1. Terminal Logic
         function appendLog(line, tool) {
             if (!terminal) return;
             const div = document.createElement('div');
-            div.textContent = `[${tool}] ${line}`;
+            // Check if line contains [Nuclei] or similar to avoid double prefix from Redis history
+            if (line.startsWith('[')) {
+                 div.textContent = line;
+            } else {
+                 div.textContent = `[${tool}] ${line}`;
+            }
             terminal.appendChild(div);
             terminal.scrollTop = terminal.scrollHeight;
         }
 
+        async function loadLogs() {
+            if(!scanId || !terminal) return;
+            try {
+                const res = await fetch('/api/logs/' + scanId);
+                const data = await res.json();
+                if(data.logs) {
+                    terminal.innerHTML = ''; // Clear initial placeholder
+                    data.logs.forEach(line => {
+                         const div = document.createElement('div');
+                         div.textContent = line;
+                         terminal.appendChild(div);
+                    });
+                    terminal.scrollTop = terminal.scrollHeight;
+                }
+            } catch(e) { console.error(e); }
+        }
+        
+        // Load logs on startup
+        loadLogs();
+
         socket.on('tool_output', (data) => {
              // For production, check if data.scan_id matches current view
-             appendLog(data.line, data.tool);
+             if (data.scan_id === scanId) {
+                appendLog(data.line, data.tool);
+             }
         });
         
         socket.on('task_update', (data) => {
-             if (terminal) {
+             if (terminal && data.scan_id === scanId) {
                  const div = document.createElement('div');
                  div.style.color = '#ffff00'; // warning color
                  div.textContent = `[SYSTEM] ${data.status} (${data.percent}%)`;
@@ -207,6 +254,99 @@
                  terminal.scrollTop = terminal.scrollHeight;
              }
         });
+
+        // 2. Cytoscape Graph
+        async function renderGraph() {
+            if (!document.getElementById('cy') || !scanId) return;
+
+            try {
+                const res = await fetch('/api/graph/' + scanId);
+                const elements = await res.json();
+                
+                if (elements.length === 0) {
+                    document.getElementById('cy').innerHTML = '<div class="text-center text-muted pt-5">No graph data available.</div>';
+                    return;
+                }
+
+                cytoscape({
+                    container: document.getElementById('cy'),
+                    elements: elements,
+                    style: [
+                        {
+                            selector: 'node',
+                            style: {
+                                'background-color': '#444',
+                                'label': 'data(label)',
+                                'color': '#ccc',
+                                'text-valign': 'center',
+                                'text-halign': 'center',
+                                'font-size': '10px',
+                                'width': 30,
+                                'height': 30
+                            }
+                        },
+                        {
+                            selector: 'node[type="root"]',
+                            style: {
+                                'background-color': '#00ff9d',
+                                'color': '#000',
+                                'width': 50,
+                                'height': 50,
+                                'font-weight': 'bold'
+                            }
+                        },
+                        {
+                            selector: 'node[type="subdomain"]',
+                            style: {
+                                'background-color': '#007bff',
+                                'width': 20,
+                                'height': 20
+                            }
+                        },
+                        {
+                            selector: 'node[type="vuln"]',
+                            style: {
+                                'background-color': '#ff0055',
+                                'width': 40,
+                                'height': 40
+                            }
+                        },
+                        {
+                            selector: 'node[type="tech"]',
+                            style: {
+                                'background-color': '#ffc107',
+                                'width': 25,
+                                'height': 25,
+                                'color': '#000'
+                            }
+                        },
+                        {
+                            selector: 'edge',
+                            style: {
+                                'width': 1,
+                                'line-color': '#333',
+                                'target-arrow-color': '#333',
+                                'target-arrow-shape': 'triangle',
+                                'curve-style': 'bezier'
+                            }
+                        }
+                    ],
+                    layout: {
+                        name: 'concentric',
+                        concentric: function( node ){
+                            return node.data('type') === 'root' ? 2 : 1;
+                        },
+                        levelWidth: function( nodes ){ return 1; },
+                        padding: 10
+                    }
+                });
+            } catch(e) { 
+                console.error("Graph Error:", e);
+                document.getElementById('cy').textContent = "Error loading graph.";
+            }
+        }
+        
+        renderGraph();
 
         async function analyzeTarget(target, scanId) {
             if(confirm('Run Analysis Engine on ' + target + '?')) {

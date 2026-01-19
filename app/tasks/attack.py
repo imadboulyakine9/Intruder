@@ -1,6 +1,6 @@
 from app.celery_worker import celery_app, socketio
 from app.scan_manager import ScanManager
-from app.db import get_vulnerabilities_collection, get_scans_collection
+from app.db import get_vulnerabilities_collection, get_scans_collection, get_redis_client
 import datetime
 import os
 
@@ -10,11 +10,17 @@ def nuclei_scan(self, target, scan_id=None):
     Celery task to run Nuclei.
     """
     manager = ScanManager()
+    r_client = get_redis_client()
     
     def on_output(line):
         socketio.emit('tool_output', {'line': line, 'tool': 'Nuclei', 'scan_id': scan_id})
+        if scan_id:
+            r_client.rpush(f"logs:{scan_id}", f"[Nuclei] {line}")
+            r_client.ltrim(f"logs:{scan_id}", -50, -1) # Keep last 50 lines
 
     socketio.emit('task_update', {'status': f'Starting Nuclei scan on {target}...', 'percent': 10, 'scan_id': scan_id})
+    if scan_id:
+        r_client.rpush(f"logs:{scan_id}", f"[SYSTEM] Starting Nuclei scan on {target}...")
     
     findings = manager.run_nuclei(target, callback=on_output)
     
@@ -81,10 +87,17 @@ def dalfox_scan(self, target, scan_id=None):
         for u in urls:
             f.write(u + '\n')
             
+    r_client = get_redis_client()
+
     def on_output(line):
         socketio.emit('tool_output', {'line': line, 'tool': 'Dalfox', 'scan_id': scan_id})
+        if scan_id:
+            r_client.rpush(f"logs:{scan_id}", f"[Dalfox] {line}")
+            r_client.ltrim(f"logs:{scan_id}", -50, -1)
 
     socketio.emit('task_update', {'status': f'Starting Dalfox scan on {len(urls)} URLs...', 'percent': 10, 'scan_id': scan_id})
+    if scan_id:
+        r_client.rpush(f"logs:{scan_id}", f"[SYSTEM] Starting Dalfox scan on {len(urls)} URLs...")
 
     pocs = manager.run_dalfox(urls_file, callback=on_output)
     
