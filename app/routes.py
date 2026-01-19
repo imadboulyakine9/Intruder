@@ -40,17 +40,47 @@ def index():
 def recon_page():
     return render_template('recon.html')
 
+import uuid
+
+@bp.route('/api/create-target', methods=['POST'])
+def create_target():
+    """Create a new target (Master Scan) without starting a task."""
+    data = request.get_json()
+    target = data.get('target')
+    
+    if not target:
+        return jsonify({'error': 'Target is required'}), 400
+        
+    scan_id = uuid.uuid4().hex
+    
+    # Create Master Scan Record with status 'created'
+    get_scans_collection().insert_one({
+        "target": target,
+        "scan_id": scan_id,
+        "type": "master",
+        "status": "created",
+        "timestamp": datetime.datetime.utcnow(),
+        "tools": [] # No tools yet
+    })
+    
+    return jsonify({
+        'status': 'success', 
+        'scan_id': scan_id,
+        'message': 'Target created'
+    }), 201
+
 @bp.route('/start-recon', methods=['POST'])
 def start_recon():
     """Trigger the Recon Workflow."""
     data = request.get_json()
     target = data.get('target')
     tools = data.get('tools', [])
+    scan_id = data.get('scan_id') # Optional existing scan_id
     
     if not target:
         return jsonify({'error': 'Target is required'}), 400
         
-    task = workflow_task.delay(target, tools)
+    task = workflow_task.delay(target, tools, scan_id=scan_id)
     
     return jsonify({
         'status': 'success', 

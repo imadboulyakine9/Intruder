@@ -39,22 +39,38 @@ class Analyzer:
         # Check if any URL contains '?' indicating parameters
         # Use the specialized crawled list first
         if attackable:
+             # Extract top 3 examples for display
+             examples = attackable[:3]
+             count = len(attackable)
+             reason = f"High probability of SQLi/XSS. Found {count} URLs with parameters."
+             
              suggestions.append({
                 "tool": "SQLMap",
-                "reason": f"Found {len(attackable)} URLs with parameters (e.g., {attackable[0]}). High probability of SQLi/XSS.",
-                "target_urls": attackable # Pass specific URLs for Phase 4
+                "reason": reason,
+                "evidence": examples, # List of specific URLs
+                "target_urls": attackable # Full list for the attack engine
             })
         elif any("?" in url for url in urls):
+            suspicious_urls = [u for u in urls if "?" in u]
+            examples = suspicious_urls[:3]
             suggestions.append({
                 "tool": "SQLMap",
-                "reason": "URLs with parameters ('?') detected in subdomains. Potential SQL Injection points."
+                "reason": "URLs with parameters ('?') detected in subdomains lookup.",
+                "evidence": examples
             })
             
         # Additional Rule: Commix (Command Injection)
-        if any("cmd=" in url or "exec=" in url for url in attackable):
+        suspect_params = ["cmd=", "exec=", "command=", "execute=", "ping=", "query=", "search=", "id="]
+        commix_candidates = []
+        for url in attackable:
+             if any(param in url for param in suspect_params):
+                 commix_candidates.append(url)
+                 
+        if commix_candidates:
              suggestions.append({
                 "tool": "Commix",
-                "reason": "Suspicious parameters detected (cmd/exec). Potential Command Injection."
+                "reason": "Suspicious parameters detected (cmd/exec/id). Potential Command Injection.",
+                "evidence": commix_candidates[:3]
             })
 
         return suggestions

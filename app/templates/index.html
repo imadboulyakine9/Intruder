@@ -33,6 +33,17 @@
             height: 100vh;
             overflow: hidden; /* App feel */
         }
+
+        .card { 
+            background-color: var(--bg-panel); 
+            border: 1px solid var(--border-color); 
+            color: var(--text-main); /* Ensure text is visible */
+        }
+        .list-group-item {
+            background-color: transparent;
+            color: var(--text-main);
+            border-color: var(--border-color);
+        }
         
         /* Typography */
         h1, h2, h3, h4, .font-mono { font-family: 'JetBrains Mono', monospace; }
@@ -215,13 +226,16 @@
             <div class="bg-panel px-4 pt-3">
                 <ul class="nav nav-tabs" id="myTab" role="tablist">
                     <li class="nav-item" role="presentation">
-                        <button class="nav-link active" id="overview-tab" data-bs-toggle="tab" data-bs-target="#overview" type="button" role="tab"><i class="bi bi-diagram-3"></i> Attack Surface</button>
+                        <button class="nav-link active" id="overview-tab" data-bs-toggle="tab" data-bs-target="#overview" type="button" role="tab"><i class="bi bi-speedometer2"></i> Overview</button>
                     </li>
                     <li class="nav-item" role="presentation">
-                        <button class="nav-link" id="vulns-tab" data-bs-toggle="tab" data-bs-target="#vulns" type="button" role="tab"><i class="bi bi-bug"></i> Vulnerabilities</button>
+                        <button class="nav-link" id="recon-tab" data-bs-toggle="tab" data-bs-target="#recon" type="button" role="tab"><i class="bi bi-radar"></i> Recon</button>
                     </li>
                     <li class="nav-item" role="presentation">
-                        <button class="nav-link" id="terminal-tab" data-bs-toggle="tab" data-bs-target="#terminal-pane" type="button" role="tab"><i class="bi bi-terminal"></i> Live Terminal</button>
+                        <button class="nav-link" id="attack-tab" data-bs-toggle="tab" data-bs-target="#attack" type="button" role="tab"><i class="bi bi-lightning-charge"></i> Attack</button>
+                    </li>
+                    <li class="nav-item" role="presentation">
+                        <button class="nav-link" id="report-tab" data-bs-toggle="tab" data-bs-target="#report" type="button" role="tab"><i class="bi bi-file-earmark-text"></i> Report</button>
                     </li>
                 </ul>
             </div>
@@ -232,59 +246,180 @@
                 <!-- 1. Overview Tab -->
                 <div class="tab-pane fade show active" id="overview" role="tabpanel">
                     <div class="row h-100">
-                        <!-- Graph -->
-                        <div class="col-md-9 h-100 d-flex flex-column">
-                            <div class="card bg-panel border-secondary flex-grow-1">
+                        <div class="col-md-9 h-100 position-relative">
+                             <div class="card bg-panel border-secondary h-100">
                                 <div class="card-body p-0 position-relative" style="background: #0d0d0d;">
                                     <div id="cy" style="width: 100%; height: 100%; position: absolute;"></div>
                                 </div>
                             </div>
                         </div>
-                        
-                        <!-- Quick Stats / Actions -->
                         <div class="col-md-3">
-                            <div class="card bg-panel border-secondary mb-3">
-                                <div class="card-header font-mono text-uppercase">Actions</div>
-                                <div class="card-body d-grid gap-2">
-                                     <button class="btn btn-outline-primary" onclick="analyzeTarget('{{ current_scan.target }}', '{{ current_scan.scan_id }}')">
-                                        <i class="bi bi-cpu"></i> Run Auto-Analysis
-                                    </button>
-                                    <button class="btn btn-outline-danger" disabled>
-                                        <i class="bi bi-stop-circle"></i> Stop Scan
-                                    </button>
-                                </div>
-                            </div>
-
-                            <div class="card bg-panel border-secondary">
-                                <div class="card-header font-mono text-uppercase">Metadata</div>
+                             <div class="card bg-panel border-secondary mb-3">
+                                <div class="card-header font-mono">ASSET INFO</div>
                                 <ul class="list-group list-group-flush">
                                     <li class="list-group-item bg-transparent text-white border-secondary d-flex justify-content-between">
-                                        <span>Technology</span>
-                                        <span class="badge bg-secondary">{{ current_scan.results|length if current_scan.results else 0 }}</span>
+                                        <span>Target</span> <span class="text-truncate" style="max-width: 100px;">{{ current_scan.target }}</span>
                                     </li>
                                      <li class="list-group-item bg-transparent text-white border-secondary d-flex justify-content-between">
+                                        <span>Status</span> <span class="text-uppercase">{{ current_scan.status }}</span>
+                                    </li>
+                                    <li class="list-group-item bg-transparent text-white border-secondary d-flex justify-content-between">
                                         <span>Attackable URLs</span>
                                         <span class="badge bg-danger">{{ attackable_urls|length }}</span>
                                     </li>
                                 </ul>
-                            </div>
+                             </div>
                         </div>
                     </div>
                 </div>
 
-                <!-- 2. Vulns Tab -->
-                <div class="tab-pane fade" id="vulns" role="tabpanel">
-                    {% if suggestions %}
+                <!-- 2. Recon Tab -->
+                <div class="tab-pane fade" id="recon" role="tabpanel">
+                    <div class="row">
+                        <!-- Controls & Results -->
+                        <div class="col-md-5 d-flex flex-column gap-3">
+                            <div class="card bg-panel border-secondary">
+                                <div class="card-header font-mono text-accent">> SCAN CONFIGURATION</div>
+                                <div class="card-body">
+                                    <div class="form-check mb-2">
+                                        <input class="form-check-input" type="checkbox" value="subfinder" id="checkSub" checked>
+                                        <label class="form-check-label text-white">Subdomain Enumeration</label>
+                                    </div>
+                                    <div class="form-check mb-2">
+                                        <input class="form-check-input" type="checkbox" value="nmap" id="checkNmap" checked>
+                                        <label class="form-check-label text-white">Port Scanning (Nmap)</label>
+                                    </div>
+                                    <div class="form-check mb-3">
+                                        <input class="form-check-input" type="checkbox" value="wappalyzer" id="checkWap" checked>
+                                        <label class="form-check-label text-white">Tech Detection</label>
+                                    </div>
+                                    <button id="launchScanBtn" class="btn btn-primary w-100 font-mono" {% if current_scan.status == 'scanning' or current_scan.status == 'attacking' %}disabled{% endif %}>
+                                        <i class="bi bi-play-fill"></i> {% if current_scan.status == 'scanning' %}SCANNING...{% else %}START RECON{% endif %}
+                                    </button>
+                                </div>
+                            </div>
+
+                            <!-- Results Lists -->
+                            {% set results = current_scan.get('results_summary', {}) %}
+                            
+                            <!-- Technologies -->
+                            <div class="card bg-dark border-secondary">
+                                <div class="card-header font-mono text-info small py-1 d-flex justify-content-between align-items-center">
+                                    <span>TECHNOLOGIES</span>
+                                    <span id="tech-badge" class="badge bg-info text-dark">{{ results.get('technologies', [])|length }}</span>
+                                </div>
+                                <div class="card-body p-0" style="max-height: 150px; overflow-y: auto;">
+                                    <ul id="tech-list" class="list-group list-group-flush small">
+                                        {% for tech in results.get('technologies', []) %}
+                                        <li class="list-group-item py-1"><i class="bi bi-cpu text-muted me-2"></i> {{ tech }}</li>
+                                        {% else %}
+                                        <li class="list-group-item py-1 text-muted">No data yet.</li>
+                                        {% endfor %}
+                                    </ul>
+                                </div>
+                            </div>
+
+                             <!-- Open Ports -->
+                             <div class="card bg-dark border-secondary">
+                                <div class="card-header font-mono text-warning small py-1 d-flex justify-content-between align-items-center">
+                                    <span>OPEN PORTS</span>
+                                    <span id="ports-badge" class="badge bg-warning text-dark">{{ results.get('open_ports', [])|length }}</span>
+                                </div>
+                                <div class="card-body p-0" style="max-height: 150px; overflow-y: auto;">
+                                    <ul id="ports-list" class="list-group list-group-flush small">
+                                        {% for port in results.get('open_ports', []) %}
+                                        <li class="list-group-item py-1 text-warning">{{ port.port }}/{{ port.protocol }} - {{ port.service }}</li>
+                                        {% else %}
+                                        <li class="list-group-item py-1 text-muted">No data yet.</li>
+                                        {% endfor %}
+                                    </ul>
+                                </div>
+                            </div>
+                            
+                            <!-- Subdomains -->
+                            <div class="card bg-dark border-secondary">
+                                <div class="card-header font-mono text-success small py-1 d-flex justify-content-between align-items-center">
+                                    <span>SUBDOMAINS</span>
+                                    <span id="subdomain-badge" class="badge bg-success text-dark">{{ results.get('subdomains', [])|length }}</span>
+                                </div>
+                                <div class="card-body p-0" style="max-height: 200px; overflow-y: auto;">
+                                    <ul id="subdomain-list" class="list-group list-group-flush small">
+                                        {% for sub in results.get('subdomains', [])[:50] %}
+                                        <li class="list-group-item py-1 text-truncate" title="{{ sub }}">{{ sub }}</li>
+                                        {% else %}
+                                        <li class="list-group-item py-1 text-muted">No data yet.</li>
+                                        {% endfor %}
+                                        {% if results.get('subdomains', [])|length > 50 %}
+                                        <li class="list-group-item py-1 text-center text-muted fst-italic">... and {{ results.get('subdomains', [])|length - 50 }} more</li>
+                                        {% endif %}
+                                    </ul>
+                                </div>
+                            </div>
+
+                             <!-- Live Assets -->
+                             <div class="card bg-dark border-secondary">
+                                <div class="card-header font-mono text-primary small py-1 d-flex justify-content-between align-items-center">
+                                    <span>LIVE ASSETS</span>
+                                    <span id="assets-badge" class="badge bg-primary text-white">{{ results.get('live_assets', [])|length }}</span>
+                                </div>
+                                <div class="card-body p-0" style="max-height: 200px; overflow-y: auto;">
+                                    <ul id="assets-list" class="list-group list-group-flush small">
+                                        {% for asset in results.get('live_assets', []) %}
+                                        <li class="list-group-item py-1 text-success d-flex justify-content-between">
+                                            <span class="text-truncate" style="max-width: 200px;" title="{{ asset.url }}">{{ asset.url }}</span>
+                                            <span class="badge {{ 'bg-success' if asset.status_code == 200 else 'bg-secondary' }}">{{ asset.status_code }}</span>
+                                        </li>
+                                        {% else %}
+                                        <li class="list-group-item py-1 text-muted">No data yet.</li>
+                                        {% endfor %}
+                                    </ul>
+                                </div>
+                            </div>
+
+                        </div>
+
+                        <!-- Terminal -->
+                        <div class="col-md-7 d-flex flex-column">
+                             <div class="card bg-black border-secondary" style="height: 100%; min-height: 600px;">
+                                 <div class="card-header border-secondary py-2 text-muted font-mono small d-flex justify-content-between">
+                                     <span>> SYSTEM LOGS</span>
+                                     <span class="text-success fw-bold">LIVE TERMINAL</span>
+                                 </div>
+                                 <div class="card-body p-0 position-relative">
+                                     <div id="attack-terminal" class="p-3 position-absolute top-0 start-0 w-100 h-100 overflow-auto font-mono text-success small" style="font-family: 'JetBrains Mono', monospace;">
+                                         <div class="text-muted">> Terminal ready... waiting for input.</div>
+                                     </div>
+                                 </div>
+                             </div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- 3. Attack Tab -->
+                <div class="tab-pane fade" id="attack" role="tabpanel">
+                     {% if suggestions %}
                     <h5 class="text-white mb-3 font-mono">Suggested Attack Vectors</h5>
                     <div class="row">
                         {% for suggestion in suggestions %}
                         <div class="col-md-4 mb-3">
-                            <div class="card border-danger bg-transparent">
+                            <div class="card border-danger bg-transparent h-100">
                                 <div class="card-body">
                                     <h5 class="card-title text-danger font-mono"><i class="bi bi-crosshair"></i> {{ suggestion.tool }}</h5>
                                     <p class="card-text text-muted small">{{ suggestion.reason }}</p>
+                                    
+                                    {% if suggestion.evidence %}
+                                    <div class="mt-2 mb-2 p-2 rounded" style="background: rgba(0,0,0,0.3); border: 1px solid #333;">
+                                        <div class="text-secondary small font-mono mb-1" style="font-size: 0.7rem;">TARGETING / EVIDENCE:</div>
+                                        <ul class="list-unstyled mb-0 font-mono text-success" style="font-size: 0.75rem;">
+                                            {% for item in suggestion.evidence %}
+                                            <li class="text-truncate" title="{{ item }}">> {{ item }}</li>
+                                            {% endfor %}
+                                        </ul>
+                                    </div>
+                                    {% endif %}
+
                                     <button onclick="launchAttack('{{ current_scan.scan_id }}', '{{ suggestion.tool }}')" 
-                                            class="btn btn-danger btn-sm w-100 font-mono">
+                                            class="btn btn-danger btn-sm w-100 font-mono mt-3">
                                         LAUNCH ATTACK
                                     </button>
                                 </div>
@@ -293,17 +428,22 @@
                         {% endfor %}
                     </div>
                     {% else %}
-                    <div class="text-center text-muted mt-5">
-                        <i class="bi bi-search display-4"></i>
-                        <p class="mt-3">No suggestions yet. Run Analysis first.</p>
+                     <div class="d-flex flex-column align-items-center justify-content-center pt-5">
+                        <button class="btn btn-outline-primary mb-3" onclick="analyzeTarget('{{ current_scan.target }}', '{{ current_scan.scan_id }}')">
+                            <i class="bi bi-cpu"></i> Run Auto-Analysis
+                        </button>
+                        <p class="text-muted">Run analysis to generate attack vector suggestions.</p>
                     </div>
                     {% endif %}
                 </div>
 
-                <!-- 3. Terminal Tab -->
-                <div class="tab-pane fade" id="terminal-pane" role="tabpanel">
-                    <div id="attack-terminal">
-                        <div class="text-muted">> Terminal ready... waiting for input.</div>
+                <!-- 4. Report Tab -->
+                <div class="tab-pane fade" id="report" role="tabpanel">
+                    <div class="text-center pt-5">
+                        <i class="bi bi-file-earmark-text display-1 text-muted"></i>
+                        <h4 class="mt-3">Reporting Module</h4>
+                        <p class="text-muted">Generate comprehensive PDF/HTML reports for this target.</p>
+                        <button class="btn btn-primary" disabled>Generate Report (Coming Soon)</button>
                     </div>
                 </div>
 
@@ -323,40 +463,25 @@
         </main>
     </div>
 
-    <!-- New Scan Modal -->
+    <!-- Create Target Modal -->
     <div class="modal fade" id="reconModal" tabindex="-1">
         <div class="modal-dialog modal-dialog-centered">
             <div class="modal-content">
                 <div class="modal-header">
-                    <h5 class="modal-title font-mono">> INITIALIZE RECON</h5>
+                    <h5 class="modal-title font-mono">> NEW TARGET</h5>
                     <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal"></button>
                 </div>
                 <div class="modal-body">
                     <form id="reconForm">
                         <div class="mb-3">
-                            <label class="form-label text-accent">Target Domain</label>
+                            <label class="form-label text-accent">Target Domain / IP</label>
                             <input type="text" class="form-control font-mono" id="targetInput" placeholder="example.com" required>
-                        </div>
-                        <div class="mb-3">
-                            <label class="form-label">Modules</label>
-                            <div class="form-check">
-                                <input class="form-check-input" type="checkbox" value="subfinder" id="checkSub" checked>
-                                <label class="form-check-label" for="checkSub">Subdomain Enumeration</label>
-                            </div>
-                            <div class="form-check">
-                                <input class="form-check-input" type="checkbox" value="nmap" id="checkNmap" checked>
-                                <label class="form-check-label" for="checkNmap">Port Scanning (Nmap)</label>
-                            </div>
-                            <div class="form-check">
-                                <input class="form-check-input" type="checkbox" value="wappalyzer" id="checkWap" checked>
-                                <label class="form-check-label" for="checkWap">Tech Detection</label>
-                            </div>
                         </div>
                     </form>
                 </div>
                 <div class="modal-footer">
                     <button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal">Cancel</button>
-                    <button type="button" class="btn btn-primary" id="startScanBtn">LAUNCH SCAN</button>
+                    <button type="button" class="btn btn-primary" id="createTargetBtn">CREATE TARGET</button>
                 </div>
             </div>
         </div>
@@ -368,36 +493,81 @@
         // --- Global Variables ---
         const socket = io();
         const scanId = '{{ current_scan.scan_id if current_scan else "" }}';
+        const targetName = '{{ current_scan.target if current_scan else "" }}';
         
-        // --- 1. Recon Form Logic ---
-        document.getElementById('startScanBtn').addEventListener('click', async () => {
-            const target = document.getElementById('targetInput').value;
-            if(!target) return alert("Target Required");
-            
-            const tools = [];
-            if(document.getElementById('checkSub').checked) tools.push('subfinder');
-            if(document.getElementById('checkNmap').checked) tools.push('nmap');
-            if(document.getElementById('checkWap').checked) tools.push('wappalyzer');
-            
-            const btn = document.getElementById('startScanBtn');
-            btn.disabled = true;
-            btn.textContent = "DEPLOYING...";
-            
-            try {
-                const res = await fetch('/start-recon', {
-                    method: 'POST',
-                    headers: {'Content-Type': 'application/json'},
-                    body: JSON.stringify({ target, tools })
-                });
-                const data = await res.json();
-                if(res.ok) {
-                    window.location.href = '/?scan_id=' + data.task_id; // Reload to new scan
+        // --- 1. Actions ---
+        
+        // A. Create Target
+        const createTargetBtn = document.getElementById('createTargetBtn');
+        if(createTargetBtn) {
+            createTargetBtn.addEventListener('click', async () => {
+                const target = document.getElementById('targetInput').value;
+                if(!target) return alert("Target Required");
+                
+                createTargetBtn.disabled = true;
+                createTargetBtn.textContent = "CREATING...";
+                
+                try {
+                    const res = await fetch('/api/create-target', {
+                        method: 'POST',
+                        headers: {'Content-Type': 'application/json'},
+                        body: JSON.stringify({ target })
+                    });
+                    const data = await res.json();
+                    if(res.ok) {
+                        window.location.href = '/?scan_id=' + data.scan_id;
+                    } else {
+                        alert("Error: " + data.error);
+                        createTargetBtn.disabled = false;
+                        createTargetBtn.textContent = "CREATE TARGET";
+                    }
+                } catch(e) {
+                    alert("Error: " + e);
+                    createTargetBtn.disabled = false;
                 }
-            } catch(e) {
-                alert("Error: " + e);
-                btn.disabled = false;
-            }
-        });
+            });
+        }
+
+        // B. Launch Recon (from Recon Tab)
+        const launchScanBtn = document.getElementById('launchScanBtn');
+        if(launchScanBtn && scanId) {
+            launchScanBtn.addEventListener('click', async () => {
+                const tools = [];
+                if(document.getElementById('checkSub').checked) tools.push('subfinder');
+                if(document.getElementById('checkNmap').checked) tools.push('nmap');
+                if(document.getElementById('checkWap').checked) tools.push('wappalyzer');
+                
+                launchScanBtn.disabled = true;
+                launchScanBtn.innerHTML = '<i class="bi bi-hourglass-split"></i> DEPLOYING...';
+                
+                try {
+                    const res = await fetch('/start-recon', {
+                        method: 'POST',
+                        headers: {'Content-Type': 'application/json'},
+                        body: JSON.stringify({ 
+                            target: targetName, 
+                            tools: tools,
+                            scan_id: scanId 
+                        })
+                    });
+                     if(res.ok) {
+                        launchScanBtn.textContent = "SCANNING IN PROGRESS...";
+                        launchScanBtn.classList.remove('btn-primary');
+                        launchScanBtn.classList.add('btn-outline-warning');
+                        // Ensure terminal is clear
+                         const term = document.getElementById('attack-terminal');
+                         if(term) term.innerHTML = '<div class="text-muted">> Initializing scan...</div>';
+                    } else {
+                        alert("Failed to start scan");
+                        launchScanBtn.disabled = false;
+                        launchScanBtn.textContent = "START RECON";
+                    }
+                } catch(e) {
+                    alert("Error: " + e);
+                    launchScanBtn.disabled = false;
+                }
+            });
+        }
 
         // --- 2. Terminal Logic ---
         const terminal = document.getElementById('attack-terminal');
@@ -434,12 +604,104 @@
         });
         
         socket.on('task_update', (data) => {
-             if (data.scan_id === scanId && terminal) {
-                 const div = document.createElement('div');
-                 div.style.color = '#ffff00';
-                 div.textContent = `[SYSTEM] ${data.status} (${data.percent}%)`;
-                 terminal.appendChild(div);
-                 terminal.scrollTop = terminal.scrollHeight;
+             if (data.scan_id === scanId) {
+                 // Update Terminal
+                 if(terminal) {
+                    const div = document.createElement('div');
+                    div.style.color = '#ffff00';
+                    div.textContent = `[SYSTEM] ${data.status} (${data.percent}%)`;
+                    terminal.appendChild(div);
+                    terminal.scrollTop = terminal.scrollHeight;
+                 }
+
+                 // Update Partial Results
+                 if(data.partial_result) {
+                     // 1. Subdomains
+                     if(data.partial_result.subdomains) {
+                         const list = document.getElementById('subdomain-list');
+                         const badge = document.getElementById('subdomain-badge');
+                         if(list && badge && data.partial_result.subdomains.length > 0) {
+                             list.innerHTML = ''; // Clear "No data yet"
+                             badge.textContent = data.partial_result.subdomains.length;
+                             
+                             data.partial_result.subdomains.slice(0, 50).forEach(sub => {
+                                 const li = document.createElement('li');
+                                 li.className = 'list-group-item py-1 text-truncate';
+                                 li.title = sub;
+                                 li.textContent = sub;
+                                 list.appendChild(li);
+                             });
+                             if(data.partial_result.subdomains.length > 50) {
+                                 const li = document.createElement('li');
+                                 li.className = 'list-group-item py-1 text-center text-muted fst-italic';
+                                 li.textContent = `... and ${data.partial_result.subdomains.length - 50} more`;
+                                 list.appendChild(li);
+                             }
+                         }
+                     }
+
+                     // 2. Open Ports
+                     if(data.partial_result.open_ports || data.partial_result.nmap) {
+                         const nmapRes = data.partial_result.open_ports || data.partial_result.nmap;
+                         const list = document.getElementById('ports-list');
+                         const badge = document.getElementById('ports-badge');
+                         
+                         if(list && badge && nmapRes.length > 0) {
+                             list.innerHTML = '';
+                             badge.textContent = nmapRes.length;
+                             nmapRes.forEach(port => {
+                                 const li = document.createElement('li');
+                                 li.className = 'list-group-item py-1 text-warning';
+                                 li.textContent = `${port.port}/${port.protocol} - ${port.service}`;
+                                 list.appendChild(li);
+                             });
+                         }
+                     }
+
+                     // 3. Live Assets (HTTPX)
+                     if(data.partial_result.live_assets) {
+                         const list = document.getElementById('assets-list');
+                         const badge = document.getElementById('assets-badge');
+                         if(list && badge && data.partial_result.live_assets.length > 0) {
+                             list.innerHTML = '';
+                             badge.textContent = data.partial_result.live_assets.length;
+                             
+                             data.partial_result.live_assets.forEach(asset => {
+                                 const li = document.createElement('li');
+                                 li.className = 'list-group-item py-1 text-success d-flex justify-content-between';
+                                 const url = asset.url || asset.input || 'Unknown';
+                                 li.innerHTML = `
+                                     <span class="text-truncate" style="max-width: 200px;" title="${url}">${url}</span>
+                                     <span class="badge ${asset.status_code == 200 ? 'bg-success' : 'bg-secondary'}">${asset.status_code || 'N/A'}</span>
+                                 `;
+                                 list.appendChild(li);
+                             });
+                         }
+                     }
+
+                     // 4. Technologies
+                     if(data.partial_result.technologies) {
+                         const list = document.getElementById('tech-list');
+                         const badge = document.getElementById('tech-badge');
+                         if(list && badge && data.partial_result.technologies.length > 0) {
+                             list.innerHTML = '';
+                             badge.textContent = data.partial_result.technologies.length;
+                             data.partial_result.technologies.forEach(tech => {
+                                 const li = document.createElement('li');
+                                 li.className = 'list-group-item py-1';
+                                 li.innerHTML = `<i class="bi bi-cpu text-muted me-2"></i> ${tech}`;
+                                 list.appendChild(li);
+                             });
+                         }
+                     }
+                     
+                     // 5. WAF Alert (Slow Mode)
+                     if(data.partial_result.waf) {
+                         // Add logic to show WAF alert if needed
+                         // Currently we don't have a specific WAF widget in index.html, 
+                         // but we can log it to the terminal or add a badge dynamically.
+                     }
+                 }
              }
         });
 

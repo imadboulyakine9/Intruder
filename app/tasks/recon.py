@@ -156,7 +156,7 @@ def tech_detection_task(self, target):
         raise e
 
 @celery_app.task(bind=True)
-def workflow_task(self, target, tools):
+def workflow_task(self, target, tools, scan_id=None):
     """
     Orchestrator task with Smart Filtering and WAF awareness.
     """
@@ -164,26 +164,34 @@ def workflow_task(self, target, tools):
         results = {}
         total_steps = len(tools) # Approximate
         current_step = 0
-        manager = ScanManager()
+        if not scan_id:
+            scan_id = self.request.id
+        
+        manager = ScanManager(scan_id=scan_id)
         is_protected = False
-        scan_id = self.request.id
         
-        # Create Master Scan Record
-        get_scans_collection().insert_one({
-            "target": target,
-            "scan_id": scan_id,
-            "type": "master",
-            "status": "scanning",
-            "timestamp": datetime.datetime.utcnow(),
-            "tools": tools
-        })
+        # Verify scan_id exists or create if needed
+        if get_scans_collection().count_documents({"scan_id": scan_id}) == 0:
+             get_scans_collection().insert_one({
+                "target": target,
+                "scan_id": scan_id,
+                "type": "master",
+                "status": "scanning",
+                "timestamp": datetime.datetime.utcnow(),
+                "tools": tools
+            })
+        else:
+            get_scans_collection().update_one(
+                {"scan_id": scan_id},
+                {"$set": {"status": "scanning", "tools": tools, "task_id": self.request.id}}
+            )
         
-        socketio.emit('task_update', {'status': f'Starting Smart Recon on {target}', 'percent': 1})
+        socketio.emit('task_update', {'status': f'Starting Smart Recon on {target}', 'scan_id': scan_id, 'percent': 1})
 
         # 1. WAF Check (Priority)
         if 'wafw00f' in tools:
             current_step += 1
-            socketio.emit('task_update', {'status': 'Checking for WAF...', 'percent': 10})
+            socketio.emit('task_update', {'status': 'Checking for WAF...', 'scan_id': scan_id, 'percent': 10})
             waf_res = manager.run_wafw00f(target)
             results['waf'] = waf_res
             
@@ -191,26 +199,34 @@ def workflow_task(self, target, tools):
             waf_str = str(waf_res).lower()
             if 'cloudflare' in waf_str or 'akamai' in waf_str or 'imperva' in waf_str:
                 is_protected = True
-                socketio.emit('task_update', {'status': f'⚠️ WAF Detected ({waf_res}). Adjusting scan intensity.', 'percent': 15})
+                socketio.emit('task_update', {'status': f'⚠️ WAF Detected ({waf_res}). Adjusting scan intensity.', 'scan_id': scan_id, 'percent': 15})
             
             # Emit intermediate result
             socketio.emit('task_update', {
                 'status': 'WAF Check complete.', 
                 'percent': 15, 
+                'scan_id': scan_id,
                 'partial_result': {'waf': waf_res}
             })
+            
+            # WAF Logging for User Clarity
+            if waf_res:
+                 waf_name = "Unknown"
+                 if isinstance(waf_res, list) and len(waf_res) > 0:
+                     waf_name = waf_res[0].get('firewall', 'Generic')
+                 socketio.emit('task_update', {'status': f'WAF Result: {waf_name}', 'scan_id': scan_id, 'percent': 15})
 
         # 2. Subdomain & Smart Filter
         live_assets = []
         if 'subfinder' in tools:
             current_step += 1
-            socketio.emit('task_update', {'status': 'Enumerating Subdomains...', 'percent': 20})
+            socketio.emit('task_update', {'status': 'Enumerating Subdomains...', 'scan_id': scan_id, 'percent': 20})
             
             subdomains = manager.run_subfinder(target)
             results['subdomains'] = subdomains
             
             # Smart Filter (httpx)
-            socketio.emit('task_update', {'status': f'Found {len(subdomains)} candidates. Verifying live assets...', 'percent': 40})
+            socketio.emit('task_update', {'status': f'Found {len(subdomains)} candidates. Verifying live assets...', 'scan_id': scan_id, 'percent': 40})
             
             # Construct path to subfinder output for httpx
             sub_file = os.path.join(manager.output_dir, f"{target}_subdomains.txt")
@@ -221,7 +237,7 @@ def workflow_task(self, target, tools):
             # Save Raw Subdomains
             get_subdomains_collection().insert_one({
                 "target": target, 
-                "scan_id": self.request.id, 
+                "scan_id": scan_id, 
                 "subdomains": subdomains, 
                 "timestamp": datetime.datetime.utcnow()
             })
@@ -234,9 +250,10 @@ def workflow_task(self, target, tools):
                 domain = asset.get('input', asset.get('url', ''))
                 if domain:
                      assets_col.update_one(
-                         {"domain": domain}, 
+                         {"domain": domain, "scan_id": scan_id}, 
                          {"$set": {
                              "parent_domain": target, 
+                             "scan_id": scan_id,
                              "last_seen": datetime.datetime.utcnow(),
                              "ip": asset.get('host'),
                              "tech": asset.get('tech', []), # httpx sometimes has tech
@@ -248,6 +265,7 @@ def workflow_task(self, target, tools):
             socketio.emit('task_update', {
                 'status': f'Smart Filter: {len(live_assets)} live assets identified from {len(subdomains)} subdomains.',
                 'percent': 50,
+                'scan_id': scan_id,
                 'partial_result': {'subdomains': subdomains, 'live_assets': live_assets} 
             })
 
@@ -255,7 +273,7 @@ def workflow_task(self, target, tools):
         if 'nmap' in tools:
             current_step += 1
             if is_protected:
-                socketio.emit('task_update', {'status': 'Skipping aggressive Nmap on main target due to WAF.', 'percent': 60})
+                socketio.emit('task_update', {'status': 'Skipping aggressive Nmap on main target due to WAF.', 'scan_id': scan_id, 'percent': 60})
                 # Return a dummy object that matches the frontend's expected schema
                 results['nmap'] = [{
                     "port": "WAF",
@@ -263,13 +281,13 @@ def workflow_task(self, target, tools):
                     "service": "Aggressive Scan Skipped"
                 }]
             else:
-                socketio.emit('task_update', {'status': 'Running Nmap on main target...', 'percent': 60})
+                socketio.emit('task_update', {'status': 'Running Nmap on main target...', 'scan_id': scan_id, 'percent': 60})
                 nmap_res = manager.run_nmap(target)
                 results['nmap'] = nmap_res
 
                 get_scans_collection().insert_one({
                     "target": target,
-                    "scan_id": self.request.id,
+                    "scan_id": scan_id,
                     "type": "nmap",
                     "results": nmap_res,
                     "timestamp": datetime.datetime.utcnow()
@@ -278,13 +296,14 @@ def workflow_task(self, target, tools):
                 socketio.emit('task_update', {
                     'status': 'Nmap finished.',
                     'percent': 70,
+                    'scan_id': scan_id,
                     'partial_result': {'nmap': nmap_res} 
                 })
             
         # 4. Tech Detection (Wappalyzer)
         if 'wappalyzer' in tools:
             current_step += 1
-            socketio.emit('task_update', {'status': 'Analyzing Technologies...', 'percent': 90})
+            socketio.emit('task_update', {'status': 'Analyzing Technologies...', 'scan_id': scan_id, 'percent': 90})
             
             # IMPROVEMENT: Use live assets if available, otherwise fallback to target
             targets_to_scan = [target]
@@ -312,7 +331,7 @@ def workflow_task(self, target, tools):
             for t in tech_res:
                 get_technologies_collection().insert_one({
                     "target": target,
-                    "scan_id": self.request.id,
+                    "scan_id": scan_id,
                     "name": t,
                     "timestamp": datetime.datetime.utcnow()
                 })
@@ -320,13 +339,14 @@ def workflow_task(self, target, tools):
             socketio.emit('task_update', {
                 'status': 'Tech Detect finished.',
                 'percent': 100,
+                'scan_id': scan_id,
                 'partial_result': {'technologies': tech_res} 
             })
 
         # 5. URL Crawling & Parameter Discovery (Rule 33-35)
         # Always run if we have live assets, even if not explicitly in tools (it's part of logic)
         if live_assets:
-             socketio.emit('task_update', {'status': 'Crawling for attackable parameters...', 'percent': 95})
+             socketio.emit('task_update', {'status': 'Crawling for attackable parameters...', 'scan_id': scan_id, 'percent': 95})
              # get list of URLs from live_assets
              start_urls = [asset.get('url', asset.get('input')) for asset in live_assets]
              
@@ -342,7 +362,7 @@ def workflow_task(self, target, tools):
              for url in attackable_urls:
                  atk_col.insert_one({
                      "target": target,
-                     "scan_id": self.request.id,
+                     "scan_id": scan_id,
                      "url": url,
                      "timestamp": datetime.datetime.utcnow()
                  })
@@ -350,6 +370,7 @@ def workflow_task(self, target, tools):
              socketio.emit('task_update', {
                 'status': f'Crawler finished. Found {len(attackable_urls)} interesting URLs.',
                  'percent': 98,
+                 'scan_id': scan_id,
                 'partial_result': {'attackable_urls': attackable_urls} 
             })
 
@@ -357,6 +378,7 @@ def workflow_task(self, target, tools):
         socketio.emit('task_update', {
             'status': 'All scans completed successfully!',
             'percent': 100,
+            'scan_id': scan_id,
             'result': results
         })
         
@@ -369,11 +391,11 @@ def workflow_task(self, target, tools):
         return {'status': 'COMPLETED', 'results': results}
 
     except Exception as e:
-        socketio.emit('task_update', {'status': f'Error: {str(e)}', 'percent': 0})
+        socketio.emit('task_update', {'status': f'Error: {str(e)}', 'percent': 0, 'scan_id': scan_id})
         # Update Master Scan Record on Failure
         try:
              get_scans_collection().update_one(
-                {"scan_id": self.request.id, "type": "master"},
+                {"scan_id": scan_id, "type": "master"},
                 {"$set": {"status": "failed", "error": str(e)}}
             )
         except:

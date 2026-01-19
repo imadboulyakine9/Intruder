@@ -160,6 +160,18 @@
                                             <i class="bi bi-shield-exclamation"></i> {{ suggestion.tool }}
                                         </h5>
                                         <p class="card-text">{{ suggestion.reason }}</p>
+                                        
+                                        {% if suggestion.evidence %}
+                                        <div class="mt-2 mb-3 bg-dark p-2 rounded border border-secondary">
+                                            <div class="text-muted small font-mono mb-1">EVIDENCE:</div>
+                                            <ul class="list-unstyled mb-0 font-mono text-warning small">
+                                                {% for item in suggestion.evidence %}
+                                                <li class="text-truncate" title="{{ item }}">> {{ item }}</li>
+                                                {% endfor %}
+                                            </ul>
+                                        </div>
+                                        {% endif %}
+
                                         <button onclick="launchAttack('{{ current_scan.scan_id }}', '{{ suggestion.tool }}')" 
                                                 class="btn btn-danger w-100"
                                                 {% if current_scan.status == 'attacking' %}disabled{% endif %}>

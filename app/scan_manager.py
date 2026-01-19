@@ -15,8 +15,9 @@ class ScanManager:
     Handles subprocess execution and output file management.
     """
 
-    def __init__(self, output_dir="scans"):
+    def __init__(self, output_dir="scans", scan_id=None):
         self.output_dir = output_dir
+        self.scan_id = scan_id
         if not os.path.exists(self.output_dir):
             os.makedirs(self.output_dir)
         
@@ -30,28 +31,62 @@ class ScanManager:
     def _run_command(self, command, timeout=300):
         """
         Helper to run shell commands safely with valid timeout.
+        Also emits output line-by-line to SocketIO if available.
         """
         try:
+            from app.celery_worker import socketio
+            
             print(f"[*] Running command: {command}")
-            # check=True raises CalledProcessError if return code != 0
-            # text=True returns stdout/stderr as strings
-            result = subprocess.run(
-                command, 
-                shell=True, 
-                check=True, 
-                stdout=subprocess.PIPE, 
-                stderr=subprocess.PIPE,
+            # Identify tool name for logging
+            tool = command.split()[0]
+            if "subfinder" in command: tool = "Subfinder"
+            elif "nmap" in command: tool = "Nmap"
+            elif "httpx" in command: tool = "HTTPX"
+            elif "nuclei" in command: tool = "Nuclei"
+            elif "wafw00f" in command: tool = "WAFW00F"
+            
+            # Use Popen to stream output
+            process = subprocess.Popen(
+                command,
+                shell=True,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.STDOUT, # Merge stderr into stdout
                 text=True,
-                timeout=timeout
+                bufsize=1 # Line buffered
             )
-            return result.stdout
+            
+            output_lines = []
+            
+            # Stream output
+            for line in process.stdout:
+                line_clean = line.strip()
+                if line_clean:
+                    output_lines.append(line_clean)
+                    # Emit to frontend
+                    if self.scan_id:
+                        try:
+                            socketio.emit('tool_output', {
+                                'scan_id': self.scan_id,
+                                'tool': tool,
+                                'line': line_clean
+                            })
+                        except:
+                            pass
+            
+            process.wait(timeout=timeout)
+            
+            if process.returncode != 0:
+                 raise subprocess.CalledProcessError(process.returncode, command, output='\n'.join(output_lines))
+                 
+            return '\n'.join(output_lines)
+            
         except subprocess.TimeoutExpired:
             print(f"[!] Command timed out after {timeout} seconds: {command}")
             raise Exception(f"Tool execution timed out after {timeout}s")
         except subprocess.CalledProcessError as e:
-            print(f"[!] Command failed: {e.stderr}")
-            raise Exception(f"Tool execution failed: {e.stderr}")
-
+            print(f"[!] Command failed: {e.output}")
+            raise Exception(f"Tool execution failed: {e.output}")
+            
     def run_httpx(self, target_file):
         """
         Runs httpx on a list of subdomains to find live hosts.
@@ -73,7 +108,6 @@ class ScanManager:
             except:
                 # Likely the python lib, keep searching or fail
                 print("[!] 'httpx' command seems to be the Python library. Please install the Go tool (httpx-toolkit).")
-                # We could try to proceed, but it will likely fail.
                 pass
         
         if not shutil.which(httpx_bin):
@@ -84,23 +118,13 @@ class ScanManager:
         # -json: json output
         # -o: output file
         # -silent: less noise
-        command = [httpx_bin, "-l", target_file, "-json", "-o", output_file, "-silent"]
+        command = f"{httpx_bin} -l {target_file} -json -o {output_file} -silent"
         
-        print(f"[*] Running command: {' '.join(command)}")
         try:
-            subprocess.run(
-                command, 
-                shell=False, 
-                check=True, 
-                stdout=subprocess.PIPE, 
-                stderr=subprocess.PIPE,
-                timeout=300 # 5 minutes
-            )
-        except subprocess.TimeoutExpired:
-            raise Exception("httpx timed out")
-        except subprocess.CalledProcessError as e:
-            print(f"[!] httpx failed: {e.stderr}")
-            raise Exception(f"httpx execution failed: {e.stderr}")
+            self._run_command(command, timeout=300)
+        except Exception as e:
+            print(f"[!] httpx failed: {e}")
+            raise Exception(f"httpx execution failed: {e}")
 
         # Parse JSON results
         live_hosts = []
@@ -129,31 +153,13 @@ class ScanManager:
             raise Exception("Subfinder tool not found in system PATH.")
 
         # Construct command
-        # -d: domain
-        # -o: output file
-        # -silent: show only subdomains in stdout (optional, but good for parsing)
-        # Using list format for shell=False to prevent injection
-        command = ["subfinder", "-d", target, "-o", output_file]
+        command = f"subfinder -d {target} -o {output_file}"
         
-        # We need to handle the fact that _run_command expects a string or list
-        # We will modify _run_command to handle list or keep shell=False
-        
-        print(f"[*] Running command: {' '.join(command)}")
         try:
-            result = subprocess.run(
-                command, 
-                shell=False, 
-                check=True, 
-                stdout=subprocess.PIPE, 
-                stderr=subprocess.PIPE,
-                text=True,
-                timeout=300
-            )
-        except subprocess.TimeoutExpired:
-            raise Exception("Subfinder timed out")
-        except subprocess.CalledProcessError as e:
-            print(f"[!] Command failed: {e.stderr}")
-            raise Exception(f"Tool execution failed: {e.stderr}")
+            self._run_command(command, timeout=300)
+        except Exception as e:
+            print(f"[!] Command failed: {e}")
+            raise Exception(f"Tool execution failed: {e}")
             
         # Read and return results
         subdomains = []
@@ -176,25 +182,13 @@ class ScanManager:
 
         # -F: Fast mode (scan fewer ports)
         # -oX: Output in XML format
-        command = ["nmap", "-F", target, "-oX", output_file]
+        command = f"nmap -F {target} -oX {output_file}"
         
-        print(f"[*] Running command: {' '.join(command)}")
         try:
-            subprocess.run(
-                command, 
-                shell=False, 
-                check=True, 
-                stdout=subprocess.PIPE, 
-                stderr=subprocess.PIPE,
-                timeout=600 # 10 minutes for Nmap
-            )
-        except subprocess.TimeoutExpired:
-            raise Exception("Nmap scan timed out")
-        except subprocess.CalledProcessError as e:
-            print(f"[!] Command failed: {e.stderr}")
-            # Nmap sometimes returns non-zero even on success if it finds nothing
-            # But usually check=True is good.
-            raise Exception(f"Nmap execution failed: {e.stderr}")
+            self._run_command(command, timeout=600)
+        except Exception as e:
+            print(f"[!] Nmap failed: {e}")
+            raise Exception(f"Nmap execution failed: {e}")
 
         return self._parse_nmap_xml(output_file)
 
@@ -203,6 +197,10 @@ class ScanManager:
         Parses Nmap XML output to extract open ports and services.
         """
         results = []
+        if not os.path.exists(xml_file):
+            print(f"[!] Nmap XML not found: {xml_file}")
+            return results
+            
         try:
             tree = ET.parse(xml_file)
             root = tree.getroot()
@@ -270,15 +268,8 @@ class ScanManager:
             return [{"waf": "Unknown (wafw00f not found)"}]
 
         # -o: output file
-        # -f: json format (implied by file extension in newer versions or handled by wrapper)
-        # wafw00f output handling is tricky. It prints to stdout. 
-        # The -o option might just save the structured log. 
-        # Let's try capturing stdout or use specific flags.
-        # Wafw00f v2.3.1 supports -o output_file.
+        command = f"wafw00f {target} -o {output_file}"
         
-        command = ["wafw00f", target, "-o", output_file]
-        
-        print(f"[*] Running command: {' '.join(command)}")
         try:
              self._run_command(command, timeout=120)
         except:
@@ -291,14 +282,25 @@ class ScanManager:
                 with open(output_file, 'r') as f:
                     # wafw00f json output structure varies, sometimes list, sometimes dict
                     # It might be empty if no WAF
-                    data = json.load(f)
-                    # Simple normalization
-                    if isinstance(data, list):
-                        wafs = data
-                    else:
-                        wafs = [data]
-            except:
-                pass
+                    try:
+                        data = json.load(f)
+                    except json.JSONDecodeError:
+                        # Sometimes wafw00f creates invalid json or empty file
+                        f.seek(0)
+                        content = f.read()
+                        if content:
+                             # Try a heuristic parse if needed, but for now just assume fail
+                             pass
+                        data = None
+
+                    if data:
+                        # Simple normalization
+                        if isinstance(data, list):
+                            wafs = data
+                        else:
+                            wafs = [data]
+            except Exception as e:
+                print(f"[!] WAF Parsing Error: {e}")
         
         return wafs
 
