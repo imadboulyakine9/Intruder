@@ -93,6 +93,42 @@
                             {% endif %}
                         </div>
 
+                        <!-- Attack Surface Data -->
+                        <div class="row mb-4">
+                            <div class="col-md-12">
+                                <div class="card border-secondary">
+                                    <div class="card-header bg-dark text-white">
+                                        <i class="bi bi-eye"></i> The Eyes: Discovered Attack Surface
+                                    </div>
+                                    <div class="card-body">
+                                        <div class="row">
+                                            <div class="col-md-3">
+                                                <h6>Records</h6>
+                                                <ul class="list-unstyled">
+                                                    <li>Subdomains: <span class="badge bg-secondary">{{ current_scan.subdomain_count }}</span></li>
+                                                    <li>Technologies: <span class="badge bg-secondary">{{ current_scan.tech_count }}</span></li>
+                                                </ul>
+                                            </div>
+                                            <div class="col-md-9">
+                                                <h6>Crawled Attack Vectors ({{ attackable_urls|length }})</h6>
+                                                {% if attackable_urls %}
+                                                <div style="max-height: 150px; overflow-y: auto; background: #000; padding: 10px; border-radius: 5px;">
+                                                    {% for url in attackable_urls %}
+                                                    <div class="text-truncate text-danger font-monospace small">
+                                                        <i class="bi bi-bug"></i> {{ url }}
+                                                    </div>
+                                                    {% endfor %}
+                                                </div>
+                                                {% else %}
+                                                <p class="text-muted small">No specific attack vectors (like parameters) found yet.</p>
+                                                {% endif %}
+                                            </div>
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+
                         <!-- Vulnerability Cards -->
                         {% if suggestions %}
                         <h4 class="mb-3">Potential Vulnerabilities</h4>

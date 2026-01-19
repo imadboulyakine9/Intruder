@@ -1,6 +1,6 @@
 from app.celery_worker import celery_app, socketio
 from app.scan_manager import ScanManager
-from app.db import get_subdomains_collection, get_scans_collection, get_technologies_collection, get_vulnerabilities_collection, get_assets_collection
+from app.db import get_subdomains_collection, get_scans_collection, get_technologies_collection, get_vulnerabilities_collection, get_assets_collection, get_attackable_urls_collection
 import datetime
 import os
 import datetime
@@ -322,6 +322,37 @@ def workflow_task(self, target, tools):
                 'percent': 100,
                 'partial_result': {'technologies': tech_res} 
             })
+
+        # 5. URL Crawling & Parameter Discovery (Rule 33-35)
+        # Always run if we have live assets, even if not explicitly in tools (it's part of logic)
+        if live_assets:
+             socketio.emit('task_update', {'status': 'Crawling for attackable parameters...', 'percent': 95})
+             # get list of URLs from live_assets
+             start_urls = [asset.get('url', asset.get('input')) for asset in live_assets]
+             
+             # Also add main target
+             if target not in start_urls and f"http://{target}" not in start_urls:
+                 start_urls.append(f"http://{target}")
+                 
+             attackable_urls = manager.run_crawler(start_urls)
+             results['attackable_urls'] = attackable_urls
+             
+             # DB Update
+             atk_col = get_attackable_urls_collection()
+             for url in attackable_urls:
+                 atk_col.insert_one({
+                     "target": target,
+                     "scan_id": self.request.id,
+                     "url": url,
+                     "timestamp": datetime.datetime.utcnow()
+                 })
+                 
+             socketio.emit('task_update', {
+                'status': f'Crawler finished. Found {len(attackable_urls)} interesting URLs.',
+                 'percent': 98,
+                'partial_result': {'attackable_urls': attackable_urls} 
+            })
+
 
         socketio.emit('task_update', {
             'status': 'All scans completed successfully!',

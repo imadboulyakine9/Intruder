@@ -2,7 +2,7 @@ from flask import Blueprint, render_template, jsonify, request
 from app.tasks.recon import workflow_task
 from app.celery_worker import hello_world_task
 from app.analyzer import Analyzer
-from app.db import get_scans_collection
+from app.db import get_scans_collection, get_attackable_urls_collection
 import datetime
 
 bp = Blueprint('main', __name__)
@@ -52,18 +52,23 @@ def dashboard():
     
     current_scan = None
     suggestions = []
+    attackable_urls = []
     
     scan_id = request.args.get('scan_id')
     if scan_id:
         current_scan = scans_col.find_one({"scan_id": scan_id})
-        if current_scan and 'suggestions' in current_scan:
-            suggestions = current_scan['suggestions']
     elif scans:
         current_scan = scans[0]
+
+    if current_scan:
         if 'suggestions' in current_scan:
             suggestions = current_scan['suggestions']
+        # Fetch attackable URLs
+        atk_col = get_attackable_urls_collection()
+        atk_cursor = atk_col.find({"target": current_scan['target']})
+        attackable_urls = [doc['url'] for doc in atk_cursor]
             
-    return render_template('dashboard.html', scans=scans, current_scan=current_scan, suggestions=suggestions)
+    return render_template('dashboard.html', scans=scans, current_scan=current_scan, suggestions=suggestions, attackable_urls=attackable_urls)
 
 @bp.route('/api/analyze', methods=['POST'])
 def analyze_target():

@@ -135,6 +135,11 @@ def get_technologies_collection():
     return MongoDatabase.get_collection("technologies")
 
 
+def get_attackable_urls_collection():
+    """Get attackable URLs collection."""
+    return MongoDatabase.get_collection("attackable_urls")
+
+
 # Export main functions
 db = MongoDatabase()
 

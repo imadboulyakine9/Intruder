@@ -66,7 +66,7 @@ Here is your **100-Step "Jarvis" Execution Plan**.
 **Week 4: Nuclei & Dalfox**
 36. **Nuclei Setup:** Ensure `nuclei` binary is ready. Update templates: `nuclei -ut`.
 37. **Nuclei Task:** Command: `nuclei -u target.com -json -o results.json`.
-38. **JSON Parsing:** Nuclei outputs huge JSON. Write a parser to extract only `info.severity > medium`.
+38. **JSON Parsing:** Nuclei outputs huge JSON. Write a parser to extract only `info.severity > low`.
 39. **Dalfox Setup:** Ensure `dalfox` is installed.
 40. **Dalfox Task:** Pass the `katana` URLs to Dalfox: `dalfox file urls.txt`.
 41. **XSS Parsing:** Capture the output. If Dalfox finds a PoC, save it to DB.
