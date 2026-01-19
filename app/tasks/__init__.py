@@ -1,1 +1,1 @@
-# Tasks package
+from .recon import subdomain_scan

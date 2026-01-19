@@ -83,7 +83,9 @@ celery_app.conf.task_queues = (
 )
 
 # Auto-discover tasks from the tasks module
-celery_app.autodiscover_tasks(['app.tasks'])
+# celery_app.autodiscover_tasks(['app.tasks'])
+# Explicitly import tasks to ensure registration
+import app.tasks.recon
 
 
 @celery_app.task(bind=True)
