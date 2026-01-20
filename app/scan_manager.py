@@ -147,31 +147,26 @@ class ScanManager:
         Command: subfinder -d target.com -o output.txt
         """
         # Sanitize target (Subfinder crashes on URLs/Ports)
-        domain = target
-        if "://" in domain:
-            try:
-                domain = urlparse(domain).hostname
-            except: pass
-        elif ":" in domain and "/" not in domain: 
-             # likely host:port
-             domain = domain.split(":")[0]
+        # Force aggressive strippping of http://, path, and port
+        domain = target.replace("http://", "").replace("https://", "").split("/")[0].split(":")[0]
              
         # Fallback if cleaning failed or empty
         if not domain:
-            domain = target
+            domain = "unknown_target"
             
         print(f"[*] Subfinder sanitized target: {target} -> {domain}")
         output_file = os.path.join(self.output_dir, f"{domain}_subdomains.txt")
         
         # Verify subfinder is installed
         if not shutil.which("subfinder"):
-            raise Exception("Subfinder tool not found in system PATH.")
+            print("[-] Subfinder not installed")
+            return [domain]
 
         # Skip localhost/IPs to avoid tool errors (Subfinder parses passive DNS)
         # It panics on localhost:3000 input
         if domain in ['localhost', '127.0.0.1']:
             print("[*] Localhost detected. Skipping Subfinder.")
-            return []
+            return [domain] # Return self so HTTPX has something to scan
 
         # Construct command
         # Exclude digitorus source as it works unstable in some environments causing a crash
@@ -189,6 +184,15 @@ class ScanManager:
         if os.path.exists(output_file):
             with open(output_file, 'r') as f:
                 subdomains = [line.strip() for line in f.readlines() if line.strip()]
+
+        # CRITICAL FIX: If subfinder returns NOTHING, httpx fails with "No input".
+        # We must at least return the root domain so httpx can scan the main site.
+        if not subdomains:
+            print(f"[!] Subfinder found 0 subdomains for {domain}. Injecting root domain for httpx.")
+            subdomains.append(domain)
+            # Ensure the file exists for httpx
+            with open(output_file, 'w') as f:
+                f.write(domain + "\n")
         
         return subdomains
 
@@ -285,7 +289,9 @@ class ScanManager:
         Detects WAF using wafw00f.
         Command: wafw00f target.com -o output.json
         """
-        output_file = os.path.join(self.output_dir, f"{target}_waf.json")
+        # Calculate a safe filename by replacing URL chars
+        safe_name = target.replace('://', '_').replace('/', '_')
+        output_file = os.path.join(self.output_dir, f"{safe_name}_waf.json")
         
         if not shutil.which("wafw00f"):
             return [{"waf": "Unknown (wafw00f not found)"}]

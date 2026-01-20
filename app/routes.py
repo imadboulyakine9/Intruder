@@ -153,18 +153,23 @@ def launch_attack():
     data = request.get_json()
     scan_id = data.get('scan_id')
     tool = data.get('tool')
+    # Use optional target override (e.g., specific http://site.com/vuln.php) or fallback to domain
+    target_override = data.get('target') 
     
     scan = get_scans_collection().find_one({"scan_id": scan_id})
     if not scan:
         return jsonify({'error': 'Scan not found'}), 404
     
-    target = scan.get('target')
+    # Default to the main domain if no specific target is provided
+    target = target_override if target_override else scan.get('target')
 
     # Trigger Celery tasks
     if tool == 'Nuclei':
         nuclei_scan.delay(target, scan_id)
     elif tool == 'Dalfox':
         dalfox_scan.delay(target, scan_id)
+    # Support generic tools if we add them (SQLMap etc)
+    # elif tool == 'SQLMap': sqlmap_scan.delay(target, scan_id) 
     
     get_scans_collection().update_one(
         {"scan_id": scan_id},
@@ -175,7 +180,14 @@ def launch_attack():
         }}
     )
     
-    return jsonify({'status': 'success', 'message': f'Launched {tool}'})
+    # Add a log entry for immediate feedback
+    r_client = get_redis_client()
+    msg = f"[SYSTEM] Launching {tool} against {target}..."
+    try:
+        r_client.rpush(f"logs:{scan_id}", msg)
+    except: pass
+    
+    return jsonify({'status': 'success', 'message': f'Launched {tool} on {target}'})
 
 @bp.route('/api/logs/<scan_id>')
 def get_scan_logs(scan_id):

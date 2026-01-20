@@ -792,29 +792,50 @@
                         const container = document.querySelector('#attack');
                         if(!container) return;
                         
-                        let html = '<h5 class="text-white mb-3 font-mono">Suggested Attack Vectors</h5><div class="row">';
+                        let html = '<h5 class="text-white mb-3 font-mono">Attack Matrix (Suitability Scores)</h5><div class="row">';
                         
-                        data.suggestions.forEach(suggestion => {
-                            let evidenceHtml = '';
-                            if (suggestion.evidence && suggestion.evidence.length > 0) {
-                                evidenceHtml = `
-                                    <div class="mt-2 mb-2 p-2 rounded" style="background: rgba(0,0,0,0.3); border: 1px solid #333;">
-                                        <div class="text-secondary small font-mono mb-1" style="font-size: 0.7rem;">TARGETING / EVIDENCE:</div>
-                                        <ul class="list-unstyled mb-0 font-mono text-success" style="font-size: 0.75rem;">
-                                            ${suggestion.evidence.map(item => `<li class="text-truncate" title="${item}">> ${item}</li>`).join('')}
-                                        </ul>
+                        data.suggestions.forEach(item => {
+                            // Determine Color based on Score
+                            let borderClass = 'border-secondary';
+                            let textClass = 'text-muted';
+                            let bgClass = '';
+                            
+                            if (item.score >= 80) {
+                                borderClass = 'border-success';
+                                textClass = 'text-success';
+                            } else if (item.score >= 50) {
+                                borderClass = 'border-warning';
+                                textClass = 'text-warning';
+                            }
+                            
+                            // Evidence / Targets list
+                            let targetsHtml = '';
+                            if (item.specific_targets && item.specific_targets.length > 0) {
+                                targetsHtml = `
+                                    <div class="mt-3">
+                                        <label class="small text-muted font-mono mb-1">Select Target Endpoint:</label>
+                                        <select class="form-select form-select-sm bg-black text-white border-secondary font-mono mb-2" id="target-select-${item.tool}">
+                                            <option value="">(Default) Main Domain</option>
+                                            ${item.specific_targets.map(t => `<option value="${t}">${t}</option>`).join('')}
+                                        </select>
                                     </div>`;
                             }
 
                             html += `
                             <div class="col-md-4 mb-3">
-                                <div class="card border-danger bg-transparent h-100">
+                                <div class="card ${borderClass} bg-transparent h-100">
                                     <div class="card-body">
-                                        <h5 class="card-title text-danger font-mono"><i class="bi bi-crosshair"></i> ${suggestion.tool}</h5>
-                                        <p class="card-text text-muted small">${suggestion.reason}</p>
-                                        ${evidenceHtml}
-                                        <button onclick="launchAttack('${sId}', '${suggestion.tool}')" 
-                                                class="btn btn-danger btn-sm w-100 font-mono mt-3">
+                                        <div class="d-flex justify-content-between align-items-center mb-2">
+                                            <h5 class="card-title ${textClass} font-mono mb-0"><i class="bi bi-crosshair"></i> ${item.tool}</h5>
+                                            <span class="badge bg-dark border border-secondary">${item.score}%</span>
+                                        </div>
+                                        
+                                        <p class="card-text text-muted small" style="min-height: 40px;">${item.reason}</p>
+                                        
+                                        ${targetsHtml}
+
+                                        <button onclick="launchAttack('${sId}', '${item.tool}')" 
+                                                class="btn btn-outline-light btn-sm w-100 font-mono mt-2">
                                             LAUNCH ATTACK
                                         </button>
                                     </div>
@@ -828,6 +849,10 @@
                         const tabEl = document.querySelector('#attack-tab');
                         if(tabEl) new bootstrap.Tab(tabEl).show();
 
+                        if(button) {
+                            button.disabled = false;
+                            button.innerHTML = '<i class="bi bi-cpu"></i> Re-Run Analysis';
+                        }
                     } else {
                         alert("Analysis failed: " + (data.error || "Unknown Error"));
                         if(button) {
@@ -843,19 +868,38 @@
         }
 
         async function launchAttack(sId, tool) {
-            if(confirm('Launch ' + tool + '?')) {
+            // Check for target override from dropdown
+            let targetOverride = null;
+            const selectEl = document.getElementById(`target-select-${tool}`);
+            if (selectEl && selectEl.value) {
+                targetOverride = selectEl.value;
+            }
+
+            const confirmMsg = targetOverride 
+                ? `Launch ${tool} against specific endpoint:\n${targetOverride}?`
+                : `Launch ${tool} against the main domain?`;
+
+            if(confirm(confirmMsg)) {
                 // Switch to Overview tab to see terminal
-                const tabEl = document.querySelector('#overview-tab'); // ID of the tab button
+                const tabEl = document.querySelector('#overview-tab'); 
                 if(tabEl) {
                     const tab = new bootstrap.Tab(tabEl);
                     tab.show();
                 }
                 
-                const res = await fetch('/api/launch-attack', {
-                    method: 'POST',
-                    headers: {'Content-Type': 'application/json'},
-                    body: JSON.stringify({scan_id: sId, tool: tool})
-                });
+                try {
+                    const res = await fetch('/api/launch-attack', {
+                        method: 'POST',
+                        headers: {'Content-Type': 'application/json'},
+                        body: JSON.stringify({
+                            scan_id: sId, 
+                            tool: tool,
+                            target: targetOverride // Pass the specific URL if selected
+                        })
+                    });
+                } catch(e) {
+                    alert("Failed to launch attack: " + e);
+                }
             }
         }
 

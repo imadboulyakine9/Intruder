@@ -15,9 +15,8 @@ class Analyzer:
     def analyze_target(self, target, scan_id=None):
         """
         Analyze the target's scan data to generate tool suggestions.
+        Returns a sorted list of ALL tools with suitability scores (0-100).
         """
-        suggestions = []
-        
         # 1. Fetch Context Data
         technologies = self.get_technologies(target)
         urls = self.get_urls(target)
@@ -40,97 +39,121 @@ class Analyzer:
                          else:
                              waf_name = str(first_waf)
 
-        # --- INTELLIGENCE RULES ---
-
-        # Rule 0: WAF Awareness (High Priority Info)
+        results = []
+        
+        # --- DEFINE ALL TOOLS ---
+        # Each tool starts with a base score (usually 10% just for existing)
+        # We then boost or nerf based on Rules.
+        
+        # 1. Nuclei (General Scanner)
+        # Base: 80% (Always recommended)
+        nuclei_score = 80
+        nuclei_reason = "Standard vulnerability scanning."
         if waf_detected:
-             suggestions.append({
-                "tool": "WAF Check", # Not an attack tool, but an insight
-                "reason": f"Active Defense Detected: {waf_name}.", 
-                "evidence": ["All subsequent attacks may require bypass techniques (tamper scripts).", "Rate limiting is likely."],
-                "type": "warning" # Frontend can style this yellow
-            })
-
-        # Rule 3: Always suggest Nuclei (Adjusted for WAF)
-        nuclei_reason = "General vulnerability scanning."
-        if waf_detected:
-            nuclei_reason += " (Recommendation: Run with -rate-limit 10 to avoid blocking)."
-            
-        suggestions.append({
+            nuclei_score = 60
+            nuclei_reason += f" (WAF {waf_name} Active - Rate Limit Recommended)."
+        
+        results.append({
             "tool": "Nuclei",
-            "reason": nuclei_reason
+            "score": nuclei_score,
+            "reason": nuclei_reason,
+            "specific_targets": []
         })
 
-        # Rule 1: WordPress Detection
-        if "WordPress" in technologies:
-            suggestions.append({
-                "tool": "WPScan",
-                "reason": "WordPress detected. perform specialized WP enumeration."
-            })
-
-        # Rule 2: SQL Injection Parameter Detection
-        # Check if any URL contains '?' indicating parameters
-        # Use the specialized crawled list first
+        # 2. SQLMap (SQL Injection)
+        # Base: 10% (Don't run blindly)
+        sqlmap_score = 10
+        sqlmap_reason = "No obvious parameters found."
+        sqlmap_targets = []
+        
         if attackable:
-             # Extract top 3 examples for display
-             examples = attackable[:3]
-             count = len(attackable)
-             reason = f"High probability of SQLi/XSS. Found {count} URLs with parameters."
-             
-             if waf_detected:
-                 reason = f"Possible SQLi Surface ({count} URLs), but {waf_name} is active. Success probability: LOW."
-             
-             suggestions.append({
-                "tool": "SQLMap",
-                "reason": reason,
-                "evidence": examples, # List of specific URLs
-                "target_urls": attackable # Full list for the attack engine
-            })
+            sqlmap_score = 90
+            count = len(attackable)
+            sqlmap_reason = f"Highly Recommended. Found {count} URL parameters."
+            sqlmap_targets = attackable
         elif any("?" in url for url in urls):
-            suspicious_urls = [u for u in urls if "?" in u]
-            examples = suspicious_urls[:3]
-            reason = "URLs with parameters ('?') detected in subdomains lookup."
-            if waf_detected:
-                reason += " Note: WAF is active."
-                
-            suggestions.append({
-                "tool": "SQLMap",
-                "reason": reason,
-                "evidence": examples
-            })
-            
-        # Additional Rule: Commix (Command Injection)
+            sqlmap_score = 50
+            sqlmap_reason = "Possible parameters detected in subdomains."
+            sqlmap_targets = [u for u in urls if "?" in u]
+        
+        if waf_detected and sqlmap_score > 30:
+            sqlmap_score -= 20
+            sqlmap_reason += " (WAF Active: Tamper scripts required)."
+
+        results.append({
+            "tool": "SQLMap",
+            "score": sqlmap_score,
+            "reason": sqlmap_reason,
+            "specific_targets": sqlmap_targets[:20] if sqlmap_targets else [], # Limit list size
+            "evidence": sqlmap_targets[:3]
+        })
+
+        # 3. WPScan (WordPress)
+        wpscan_score = 5
+        wpscan_reason = "No WordPress detected."
+        if "WordPress" in technologies:
+            wpscan_score = 95
+            wpscan_reason = "WordPress Technology Detected."
+        
+        results.append({
+            "tool": "WPScan",
+            "score": wpscan_score,
+            "reason": wpscan_reason,
+            "specific_targets": []
+        })
+
+        # 4. Dalfox (XSS)
+        dalfox_score = 10
+        dalfox_reason = "No parameters found."
+        dalfox_targets = []
+
+        if attackable:
+            dalfox_score = 85
+            dalfox_reason = f"Recommended. {len(attackable)} URLs with parameters."
+            dalfox_targets = attackable
+        elif any("?" in url for url in urls):
+            dalfox_score = 40
+            dalfox_reason = "Parameters likely present."
+            dalfox_targets = [u for u in urls if "?" in u]
+        
+        if waf_detected and dalfox_score > 30:
+            dalfox_score -= 10
+            dalfox_reason += " (WAF might block XSS payloads)."
+
+        results.append({
+            "tool": "Dalfox",
+            "score": dalfox_score,
+            "reason": dalfox_reason,
+            "specific_targets": dalfox_targets[:20] if dalfox_targets else [],
+            "evidence": dalfox_targets[:3]
+        })
+        
+        # 5. Commix (Command Injection)
+        commix_score = 5
+        commix_reason = "No suspicious command parameters."
+        commix_targets = []
         suspect_params = ["cmd=", "exec=", "command=", "execute=", "ping=", "query=", "search=", "id="]
-        commix_candidates = []
-        for url in attackable:
-             if any(param in url for param in suspect_params):
-                 commix_candidates.append(url)
-                 
-        if str(commix_candidates): # Ensure it is truthy if not empty list
-             suggestions.append({
-                "tool": "Commix",
-                "reason": "Suspicious parameters detected (cmd/exec/id). Potential Command Injection.",
-                "evidence": commix_candidates[:3]
-            })
+        
+        found_commix = []
+        if attackable:
+            for url in attackable:
+                if any(p in url for p in suspect_params):
+                    found_commix.append(url)
+        
+        if found_commix:
+            commix_score = 75
+            commix_reason = "Suspicious parameters (cmd/exec) found."
+            commix_targets = found_commix
+        
+        results.append({
+             "tool": "Commix",
+             "score": commix_score,
+             "reason": commix_reason,
+             "specific_targets": commix_targets[:10]
+        })
 
-        # Rule 4: Dalfox (XSS) - Suggest if parameters are found
-        # Dalfox is great for XSS on parameters
-        if attackable or any("?" in url for url in urls):
-            evidence = attackable[:3] if attackable else [u for u in urls if "?" in u][:3]
-            count = len(attackable) if attackable else len([u for u in urls if "?" in u])
-            
-            dalfox_reason = f"XSS Scanning recommended. Found {count} URLs with parameters."
-            if waf_detected:
-                dalfox_reason += " (WAF Active: XSS payloads might be blocked)."
-                
-            suggestions.append({
-                "tool": "Dalfox",
-                "reason": dalfox_reason, 
-                "evidence": evidence,
-                "target_urls": attackable # Analyzer passes this for context, though frontend uses ID/Tool
-            })
-
-        return suggestions
+        # Sort by score (Highest first)
+        return sorted(results, key=lambda x: x['score'], reverse=True)
 
     def get_technologies(self, target):
         """Retrieve unique technologies for the target."""
