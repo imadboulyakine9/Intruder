@@ -133,7 +133,7 @@ def analyze_target():
     scan_id = data.get('scan_id')
     
     analyzer = Analyzer()
-    suggestions = analyzer.analyze_target(target)
+    suggestions = analyzer.analyze_target(target, scan_id)
     
     # Update DB
     get_scans_collection().update_one(

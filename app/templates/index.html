@@ -246,13 +246,31 @@
                 <!-- 1. Overview Tab -->
                 <div class="tab-pane fade show active" id="overview" role="tabpanel">
                     <div class="row h-100">
-                        <div class="col-md-9 h-100 position-relative">
-                             <div class="card bg-panel border-secondary h-100">
+                        <!-- Main Area: Graph & Terminal -->
+                        <div class="col-md-9 d-flex flex-column h-100">
+                            <!-- Top: Graph (60%) -->
+                            <div class="card bg-panel border-secondary mb-3" style="flex: 0 0 60%; position: relative;">
+                                <div class="card-header font-mono small text-muted py-1">> ATTACK MAP</div>
                                 <div class="card-body p-0 position-relative" style="background: #0d0d0d;">
-                                    <div id="cy" style="width: 100%; height: 100%; position: absolute;"></div>
+                                   <div id="cy" style="width: 100%; height: 100%; position: absolute;"></div>
                                 </div>
                             </div>
+                            
+                            <!-- Bottom: Live Terminal (40%) -->
+                             <div class="card bg-black border-secondary" style="height: 40vh; min-height: 300px;">
+                                 <div class="card-header border-secondary py-2 text-muted font-mono small d-flex justify-content-between">
+                                     <span>> SYSTEM LOGS</span>
+                                     <span class="text-success fw-bold">LIVE TERMINAL</span>
+                                 </div>
+                                 <div class="card-body p-0 position-relative">
+                                     <div id="attack-terminal" class="p-3 position-absolute top-0 start-0 w-100 h-100 overflow-auto font-mono text-success small" style="font-family: 'JetBrains Mono', monospace;">
+                                         <div class="text-muted">> Terminal ready... waiting for input.</div>
+                                     </div>
+                                 </div>
+                             </div>
                         </div>
+
+                        <!-- Right Sidebar: Info -->
                         <div class="col-md-3">
                              <div class="card bg-panel border-secondary mb-3">
                                 <div class="card-header font-mono">ASSET INFO</div>
@@ -281,6 +299,10 @@
                             <div class="card bg-panel border-secondary">
                                 <div class="card-header font-mono text-accent">> SCAN CONFIGURATION</div>
                                 <div class="card-body">
+                                    <div class="form-check mb-2">
+                                        <input class="form-check-input" type="checkbox" value="wafw00f" id="checkWaf" checked>
+                                        <label class="form-check-label text-white">WAF Detection (Smart Mode)</label>
+                                    </div>
                                     <div class="form-check mb-2">
                                         <input class="form-check-input" type="checkbox" value="subfinder" id="checkSub" checked>
                                         <label class="form-check-label text-white">Subdomain Enumeration</label>
@@ -378,19 +400,10 @@
 
                         </div>
 
-                        <!-- Terminal -->
+                        <!-- Terminal was moved to Overview -->
+                        <!-- Replaced with a placeholder or just removed -->
                         <div class="col-md-7 d-flex flex-column">
-                             <div class="card bg-black border-secondary" style="height: 100%; min-height: 600px;">
-                                 <div class="card-header border-secondary py-2 text-muted font-mono small d-flex justify-content-between">
-                                     <span>> SYSTEM LOGS</span>
-                                     <span class="text-success fw-bold">LIVE TERMINAL</span>
-                                 </div>
-                                 <div class="card-body p-0 position-relative">
-                                     <div id="attack-terminal" class="p-3 position-absolute top-0 start-0 w-100 h-100 overflow-auto font-mono text-success small" style="font-family: 'JetBrains Mono', monospace;">
-                                         <div class="text-muted">> Terminal ready... waiting for input.</div>
-                                     </div>
-                                 </div>
-                             </div>
+                             <!-- Terminal Moved to Overview Tab as requested -->
                         </div>
                     </div>
                 </div>
@@ -533,6 +546,7 @@
         if(launchScanBtn && scanId) {
             launchScanBtn.addEventListener('click', async () => {
                 const tools = [];
+                if(document.getElementById('checkWaf').checked) tools.push('wafw00f');
                 if(document.getElementById('checkSub').checked) tools.push('subfinder');
                 if(document.getElementById('checkNmap').checked) tools.push('nmap');
                 if(document.getElementById('checkWap').checked) tools.push('wappalyzer');
@@ -572,30 +586,86 @@
         // --- 2. Terminal Logic ---
         const terminal = document.getElementById('attack-terminal');
         
+        function saveLogs() {
+            if(!scanId || !terminal) return;
+            // Only save text content to avoid HTML bloat, or save innerHTML carefully
+            // Using a simple array of lines is better
+            const logs = [];
+            terminal.childNodes.forEach(node => {
+                if(node.textContent) logs.push(node.textContent);
+            });
+            localStorage.setItem(`logs_${scanId}`, JSON.stringify(logs));
+        }
+
         function appendLog(line, tool) {
             if (!terminal) return;
             const div = document.createElement('div');
-            if (line.startsWith('[')) div.textContent = line;
-            else div.textContent = `[${tool}] ${line}`;
+            // If line is system msg or already formatted, don't double tag
+            if (tool === 'SYSTEM' || line.startsWith('[')) {
+                div.textContent = line;
+                if(line.includes('[SYSTEM]')) div.style.color = '#ffff00';
+            } else {
+                div.textContent = `[${tool}] ${line}`;
+            }
             terminal.appendChild(div);
+            // Save to local storage
+            saveLogs();
             terminal.scrollTop = terminal.scrollHeight;
         }
 
         async function loadLogs() {
             if(!scanId || !terminal) return;
+            
+            // 1. Try Local Storage first (Instant Access)
+            const local = localStorage.getItem(`logs_${scanId}`);
+            if(local) {
+                try {
+                    const logs = JSON.parse(local);
+                    terminal.innerHTML = '';
+                    logs.forEach(line => {
+                         const div = document.createElement('div');
+                         div.textContent = line;
+                         if(line.includes('[SYSTEM]')) div.style.color = '#ffff00';
+                         terminal.appendChild(div);
+                    });
+                     terminal.scrollTop = terminal.scrollHeight;
+                } catch(e) { console.error("Error parsing local logs", e); }
+            }
+
+            // 2. Fetch Server logs (Source of Truth) to fill gaps or if local is empty
             try {
                 const res = await fetch('/api/logs/' + scanId);
                 const data = await res.json();
-                if(data.logs) {
-                    terminal.innerHTML = ''; 
+                
+                if(data.logs && data.logs.length > 0) {
+                    console.log(`Loaded ${data.logs.length} logs from server.`);
+                    
+                    // Server logs are authoritative. Overwrite local/terminal to ensure sync.
+                    terminal.innerHTML = '';
+                    const logsToSave = [];
+                    
                     data.logs.forEach(line => {
+                         // Decoded from Redis (bytes) or String
+                         const text = line; 
                          const div = document.createElement('div');
-                         div.textContent = line;
+                         
+                         // Simple formatting check
+                         if (text.includes('[SYSTEM]') || text.includes('Starting') || text.includes('Completed')) {
+                             div.textContent = text;
+                             div.style.color = '#ffff00';
+                         } else {
+                             div.textContent = text;
+                         }
+                         
                          terminal.appendChild(div);
+                         logsToSave.push(text);
                     });
+                    
+                    // Update cache
+                    localStorage.setItem(`logs_${scanId}`, JSON.stringify(logsToSave));
                     terminal.scrollTop = terminal.scrollHeight;
                 }
-            } catch(e) { console.error(e); }
+            } catch(e) { console.error("Error fetching server logs:", e); }
         }
         loadLogs();
 
@@ -606,13 +676,7 @@
         socket.on('task_update', (data) => {
              if (data.scan_id === scanId) {
                  // Update Terminal
-                 if(terminal) {
-                    const div = document.createElement('div');
-                    div.style.color = '#ffff00';
-                    div.textContent = `[SYSTEM] ${data.status} (${data.percent}%)`;
-                    terminal.appendChild(div);
-                    terminal.scrollTop = terminal.scrollHeight;
-                 }
+                 appendLog(`[SYSTEM] ${data.status} (${data.percent}%)`, 'SYSTEM');
 
                  // Update Partial Results
                  if(data.partial_result) {
@@ -708,20 +772,84 @@
         // --- 3. Analysis & Attacks ---
         async function analyzeTarget(target, sId) {
             if(confirm('Run Analysis Engine?')) {
-                const res = await fetch('/api/analyze', {
-                    method: 'POST',
-                    headers: {'Content-Type': 'application/json'},
-                    body: JSON.stringify({target: target, scan_id: sId})
-                });
-                if(res.ok) window.location.reload();
+                const button = document.querySelector('button[onclick*="analyzeTarget"]');
+                if(button) {
+                    button.disabled = true;
+                    button.innerHTML = '<span class="spinner-border spinner-border-sm" role="status" aria-hidden="true"></span> Analysis Running...';
+                }
+
+                try {
+                    const res = await fetch('/api/analyze', {
+                        method: 'POST',
+                        headers: {'Content-Type': 'application/json'},
+                        body: JSON.stringify({target: target, scan_id: sId})
+                    });
+                    
+                    const data = await res.json();
+                    
+                    if(res.ok && data.suggestions) {
+                        // Re-render suggestions without reload
+                        const container = document.querySelector('#attack');
+                        if(!container) return;
+                        
+                        let html = '<h5 class="text-white mb-3 font-mono">Suggested Attack Vectors</h5><div class="row">';
+                        
+                        data.suggestions.forEach(suggestion => {
+                            let evidenceHtml = '';
+                            if (suggestion.evidence && suggestion.evidence.length > 0) {
+                                evidenceHtml = `
+                                    <div class="mt-2 mb-2 p-2 rounded" style="background: rgba(0,0,0,0.3); border: 1px solid #333;">
+                                        <div class="text-secondary small font-mono mb-1" style="font-size: 0.7rem;">TARGETING / EVIDENCE:</div>
+                                        <ul class="list-unstyled mb-0 font-mono text-success" style="font-size: 0.75rem;">
+                                            ${suggestion.evidence.map(item => `<li class="text-truncate" title="${item}">> ${item}</li>`).join('')}
+                                        </ul>
+                                    </div>`;
+                            }
+
+                            html += `
+                            <div class="col-md-4 mb-3">
+                                <div class="card border-danger bg-transparent h-100">
+                                    <div class="card-body">
+                                        <h5 class="card-title text-danger font-mono"><i class="bi bi-crosshair"></i> ${suggestion.tool}</h5>
+                                        <p class="card-text text-muted small">${suggestion.reason}</p>
+                                        ${evidenceHtml}
+                                        <button onclick="launchAttack('${sId}', '${suggestion.tool}')" 
+                                                class="btn btn-danger btn-sm w-100 font-mono mt-3">
+                                            LAUNCH ATTACK
+                                        </button>
+                                    </div>
+                                </div>
+                            </div>`;
+                        });
+                        html += '</div>';
+                        container.innerHTML = html;
+                        
+                        // Switch to attack tab so user sees result
+                        const tabEl = document.querySelector('#attack-tab');
+                        if(tabEl) new bootstrap.Tab(tabEl).show();
+
+                    } else {
+                        alert("Analysis failed: " + (data.error || "Unknown Error"));
+                        if(button) {
+                            button.disabled = false;
+                            button.innerHTML = '<i class="bi bi-cpu"></i> Run Auto-Analysis';
+                        }
+                    }
+                } catch(e) {
+                    console.error(e);
+                    alert("Error during analysis");
+                }
             }
         }
 
         async function launchAttack(sId, tool) {
             if(confirm('Launch ' + tool + '?')) {
-                // Switch to terminal tab
-                const tab = new bootstrap.Tab(document.querySelector('#terminal-tab'));
-                tab.show();
+                // Switch to Overview tab to see terminal
+                const tabEl = document.querySelector('#overview-tab'); // ID of the tab button
+                if(tabEl) {
+                    const tab = new bootstrap.Tab(tabEl);
+                    tab.show();
+                }
                 
                 const res = await fetch('/api/launch-attack', {
                     method: 'POST',

@@ -22,6 +22,9 @@ def nuclei_scan(self, target, scan_id=None):
     if scan_id:
         r_client.rpush(f"logs:{scan_id}", f"[SYSTEM] Starting Nuclei scan on {target}...")
     
+    # Update templates first (Step 36)
+    manager.update_nuclei(callback=on_output)
+    
     findings = manager.run_nuclei(target, callback=on_output)
     
     # Save findings

@@ -3,7 +3,7 @@ import os
 import shutil
 import json
 import xml.etree.ElementTree as ET
-from urllib.parse import urljoin
+from urllib.parse import urljoin, urlparse
 import requests
 from bs4 import BeautifulSoup
 from Wappalyzer import Wappalyzer, WebPage
@@ -146,20 +146,43 @@ class ScanManager:
         Runs subfinder on the target domain.
         Command: subfinder -d target.com -o output.txt
         """
-        output_file = os.path.join(self.output_dir, f"{target}_subdomains.txt")
+        # Sanitize target (Subfinder crashes on URLs/Ports)
+        domain = target
+        if "://" in domain:
+            try:
+                domain = urlparse(domain).hostname
+            except: pass
+        elif ":" in domain and "/" not in domain: 
+             # likely host:port
+             domain = domain.split(":")[0]
+             
+        # Fallback if cleaning failed or empty
+        if not domain:
+            domain = target
+            
+        print(f"[*] Subfinder sanitized target: {target} -> {domain}")
+        output_file = os.path.join(self.output_dir, f"{domain}_subdomains.txt")
         
         # Verify subfinder is installed
         if not shutil.which("subfinder"):
             raise Exception("Subfinder tool not found in system PATH.")
 
+        # Skip localhost/IPs to avoid tool errors (Subfinder parses passive DNS)
+        # It panics on localhost:3000 input
+        if domain in ['localhost', '127.0.0.1']:
+            print("[*] Localhost detected. Skipping Subfinder.")
+            return []
+
         # Construct command
-        command = f"subfinder -d {target} -o {output_file}"
+        # Exclude digitorus source as it works unstable in some environments causing a crash
+        command = f"subfinder -d {domain} -o {output_file} -es digitorus"
         
         try:
             self._run_command(command, timeout=300)
         except Exception as e:
             print(f"[!] Command failed: {e}")
-            raise Exception(f"Tool execution failed: {e}")
+            # Don't raise here, allow workflow to continue to next tool (Nmap)
+            pass
             
         # Read and return results
         subdomains = []
@@ -332,6 +355,17 @@ class ScanManager:
                     
         return output_lines
 
+    def update_nuclei(self, callback=None):
+        """
+        Updates Nuclei templates.
+        Command: nuclei -ut
+        """
+        if shutil.which("nuclei"):
+            if callback: callback("Updating Nuclei templates...")
+            self._run_with_stream(["nuclei", "-ut"], callback)
+        else:
+            if callback: callback("Nuclei not found. Skipping update.")
+
     def run_nuclei(self, target, callback=None):
         """
         Runs Nuclei on the target.
@@ -344,10 +378,9 @@ class ScanManager:
             return []
 
         # -u: target url
-        # -json: json output (but we also want stdout for progress, Nuclei prints info to stdout)
+        # -jsonl: output in JSONL format (Nuclei v3+ uses -jsonl, -json is deprecated/removed in some versions)
         # -o: output file
-        # -stats: print stats
-        command = ["nuclei", "-u", target, "-json", "-o", output_file]
+        command = ["nuclei", "-u", target, "-jsonl", "-o", output_file]
         
         # We run it and stream output
         self._run_with_stream(command, callback)

@@ -59,9 +59,9 @@ celery_app.conf.update(
     
     # Routing
     task_routes={
-        'intruder.tasks.recon.*': {'queue': 'recon'},
-        'intruder.tasks.attack.*': {'queue': 'attack'},
-        'intruder.tasks.analysis.*': {'queue': 'analysis'},
+        'app.tasks.recon.*': {'queue': 'recon'},
+        'app.tasks.attack.*': {'queue': 'attack'},
+        'app.tasks.analysis.*': {'queue': 'analysis'},
     },
     
     # Queue settings
