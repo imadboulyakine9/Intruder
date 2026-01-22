@@ -410,14 +410,42 @@
 
                 <!-- 3. Attack Tab -->
                 <div class="tab-pane fade" id="attack" role="tabpanel">
+                    <!-- Section A: Confirmed Findings -->
+                    <div id="findings-section" style="display: none;" class="mb-4">
+                        <div class="card bg-dark border-danger">
+                            <div class="card-header bg-danger text-black fw-bold font-mono">
+                                <i class="bi bi-exclamation-triangle-fill"></i> CONFIRMED VULNERABILITIES
+                            </div>
+                            <div class="card-body p-0">
+                                <div class="table-responsive" id="findings-container">
+                                    <table class="table table-dark table-hover mb-0 font-mono small">
+                                        <thead>
+                                            <tr>
+                                                <th>SEV</th>
+                                                <th>VULNERABILITY</th>
+                                                <th>TOOL</th>
+                                                <th>LOCATION</th>
+                                                <th>EVIDENCE</th>
+                                            </tr>
+                                        </thead>
+                                        <tbody id="findings-body">
+                                            <!-- JS will populate -->
+                                        </tbody>
+                                    </table>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Section B: Attack Matrix -->
+                    <h5 class="text-white mb-3 font-mono">Attack Matrix & Suggestions</h5>
                      {% if suggestions %}
-                    <h5 class="text-white mb-3 font-mono">Suggested Attack Vectors</h5>
                     <div class="row">
                         {% for suggestion in suggestions %}
                         <div class="col-md-4 mb-3">
-                            <div class="card border-danger bg-transparent h-100">
+                            <div class="card border-secondary bg-transparent h-100">
                                 <div class="card-body">
-                                    <h5 class="card-title text-danger font-mono"><i class="bi bi-crosshair"></i> {{ suggestion.tool }}</h5>
+                                    <h5 class="card-title text-muted font-mono"><i class="bi bi-crosshair"></i> {{ suggestion.tool }}</h5>
                                     <p class="card-text text-muted small">{{ suggestion.reason }}</p>
                                     
                                     {% if suggestion.evidence %}
@@ -430,9 +458,21 @@
                                         </ul>
                                     </div>
                                     {% endif %}
+                                    
+                                    {% if suggestion.specific_targets %}
+                                    <div class="mt-3">
+                                        <label class="small text-muted font-mono mb-1">Select Target Endpoint:</label>
+                                        <select class="form-select form-select-sm bg-black text-white border-secondary font-mono mb-2" id="target-select-{{ suggestion.tool }}">
+                                            <option value="">(Default) Main Domain</option>
+                                            {% for t in suggestion.specific_targets %}
+                                            <option value="{{ t }}">{{ t }}</option>
+                                            {% endfor %}
+                                        </select>
+                                    </div>
+                                    {% endif %}
 
                                     <button onclick="launchAttack('{{ current_scan.scan_id }}', '{{ suggestion.tool }}')" 
-                                            class="btn btn-danger btn-sm w-100 font-mono mt-3">
+                                            class="btn btn-outline-danger btn-sm w-100 font-mono mt-3">
                                         LAUNCH ATTACK
                                     </button>
                                 </div>
@@ -668,6 +708,92 @@
             } catch(e) { console.error("Error fetching server logs:", e); }
         }
         loadLogs();
+
+        // Phase 2: Fetch Persisted Recon Data
+        async function fetchReconData() {
+            if (!scanId) return;
+            try {
+                const res = await fetch(`/api/recon/${scanId}`);
+                const data = await res.json();
+                
+                // 1. Subdomains
+                if(data.subdomains) {
+                     const list = document.getElementById('subdomain-list');
+                     const badge = document.getElementById('subdomain-badge');
+                     if(list && badge && data.subdomains.length > 0) {
+                         list.innerHTML = ''; 
+                         badge.textContent = data.subdomains.length;
+                         data.subdomains.slice(0, 50).forEach(sub => {
+                             const li = document.createElement('li');
+                             li.className = 'list-group-item py-1 text-truncate';
+                             li.title = sub;
+                             li.textContent = sub;
+                             list.appendChild(li);
+                         });
+                         if(data.subdomains.length > 50) {
+                             const li = document.createElement('li');
+                             li.className = 'list-group-item py-1 text-center text-muted fst-italic';
+                             li.textContent = `... and ${data.subdomains.length - 50} more`;
+                             list.appendChild(li);
+                         }
+                     }
+                }
+
+                // 2. Open Ports
+                if(data.open_ports) {
+                     const list = document.getElementById('ports-list');
+                     const badge = document.getElementById('ports-badge');
+                     if(list && badge && data.open_ports.length > 0) {
+                         list.innerHTML = '';
+                         badge.textContent = data.open_ports.length;
+                         data.open_ports.forEach(port => {
+                             const li = document.createElement('li');
+                             li.className = 'list-group-item py-1 text-warning';
+                             li.textContent = `${port.port}/${port.protocol} - ${port.service}`;
+                             list.appendChild(li);
+                         });
+                     }
+                }
+
+                // 3. Live Assets
+                if(data.live_assets) {
+                     const list = document.getElementById('assets-list');
+                     const badge = document.getElementById('assets-badge');
+                     if(list && badge && data.live_assets.length > 0) {
+                         list.innerHTML = '';
+                         badge.textContent = data.live_assets.length;
+                         data.live_assets.forEach(asset => {
+                             const li = document.createElement('li');
+                             li.className = 'list-group-item py-1 text-success d-flex justify-content-between';
+                             const url = asset.url || 'Unknown';
+                             li.innerHTML = `
+                                 <span class="text-truncate" style="max-width: 200px;" title="${url}">${url}</span>
+                                 <span class="badge ${asset.status_code == 200 ? 'bg-success' : 'bg-secondary'}">${asset.status_code || 'N/A'}</span>
+                             `;
+                             list.appendChild(li);
+                         });
+                     }
+                }
+
+                // 4. Technologies
+                if(data.technologies) {
+                     const list = document.getElementById('tech-list');
+                     const badge = document.getElementById('tech-badge');
+                     if(list && badge && data.technologies.length > 0) {
+                         list.innerHTML = '';
+                         badge.textContent = data.technologies.length;
+                         data.technologies.forEach(tech => {
+                             const li = document.createElement('li');
+                             li.className = 'list-group-item py-1';
+                             li.innerHTML = `<i class="bi bi-cpu text-muted me-2"></i> ${tech}`;
+                             list.appendChild(li);
+                         });
+                     }
+                }
+            } catch (e) { console.error("Recon Fetch Error:", e); }
+        }
+        // Fetch on load (in case of refresh)
+        fetchReconData();
 
         socket.on('tool_output', (data) => {
              if (data.scan_id === scanId) appendLog(data.line, data.tool);
@@ -943,3 +1069,46 @@
     </script>
 </body>
 </html>
+<script>
+        // Phase 4: Fetch Attack Findings
+        async function fetchFindings() {
+            if (!scanId) return;
+            const container = document.getElementById('findings-container');
+            if (!container) return; // Might not exist yet if I haven't updated HTML
+
+            try {
+                const res = await fetch(`/api/scan/${scanId}/vulns`);
+                const data = await res.json();
+                
+                if(data.findings && data.findings.length > 0) {
+                     document.getElementById('findings-section').style.display = 'block';
+                     const tbody = document.getElementById('findings-body');
+                     tbody.innerHTML = '';
+                     
+                     data.findings.forEach(vuln => {
+                         const tr = document.createElement('tr');
+                         
+                         // Determine Severity Color
+                         let sevColor = 'text-white';
+                         let sev = (vuln.severity || 'INFO').toUpperCase();
+                         if(sev === 'HIGH' || sev === 'CRITICAL') sevColor = 'text-danger';
+                         else if(sev === 'MEDIUM') sevColor = 'text-warning';
+                         else if(sev === 'LOW') sevColor = 'text-info';
+
+                         tr.innerHTML = `
+                             <td class="${sevColor} fw-bold">${sev}</td>
+                             <td>${vuln.name || vuln.info?.name || 'Unknown Issue'}</td>
+                             <td><span class="badge bg-secondary">${vuln.tool}</span></td>
+                             <td class="small font-mono text-truncate" style="max-width: 200px;">${vuln.url || vuln.host || ''}</td>
+                             <td><button class="btn btn-sm btn-outline-light" onclick='alert(JSON.stringify(${JSON.stringify(vuln)}, null, 2))'>Details</button></td>
+                         `;
+                         tbody.appendChild(tr);
+                     });
+                }
+            } catch (e) { console.error("Findings Fetch Error:", e); }
+        }
+        
+        // Poll for findings every 5 seconds if attacking
+        setInterval(fetchFindings, 5000);
+        fetchFindings();
+</script>

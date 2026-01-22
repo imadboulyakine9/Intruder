@@ -1,9 +1,9 @@
 from flask import Blueprint, render_template, jsonify, request
 from app.tasks.recon import workflow_task
-from app.tasks.attack import nuclei_scan, dalfox_scan
+from app.tasks.attack import nuclei_scan, dalfox_scan, sqlmap_scan, wpscan_scan, commix_scan
 from app.celery_worker import hello_world_task
 from app.analyzer import Analyzer
-from app.db import get_scans_collection, get_attackable_urls_collection, get_redis_client, get_subdomains_collection, get_vulnerabilities_collection, get_technologies_collection
+from app.db import get_scans_collection, get_attackable_urls_collection, get_redis_client, get_subdomains_collection, get_vulnerabilities_collection, get_technologies_collection, get_assets_collection
 import datetime
 from app.celery_worker import celery_app
 
@@ -168,8 +168,12 @@ def launch_attack():
         nuclei_scan.delay(target, scan_id)
     elif tool == 'Dalfox':
         dalfox_scan.delay(target, scan_id)
-    # Support generic tools if we add them (SQLMap etc)
-    # elif tool == 'SQLMap': sqlmap_scan.delay(target, scan_id) 
+    elif tool == 'SQLMap':
+        sqlmap_scan.delay(target, scan_id)
+    elif tool == 'WPScan':
+        wpscan_scan.delay(target, scan_id)
+    elif tool == 'Commix':
+        commix_scan.delay(target, scan_id)
     
     get_scans_collection().update_one(
         {"scan_id": scan_id},
@@ -268,3 +272,95 @@ def stop_scan():
         celery_app.control.revoke(task_id, terminate=True)
         return jsonify({'status': 'stopped', 'message': f'Task {task_id} revoked.'})
     return jsonify({'error': 'No task ID provided'}), 400
+
+@bp.route('/api/recon/<scan_id>')
+def get_recon_data(scan_id):
+    """Fetch all aggregated recon data for a scan."""
+    results = {
+        'subdomains': [],
+        'technologies': [],
+        'open_ports': [],
+        'live_assets': [],
+        'waf': []
+    }
+    
+    # 1. Subdomains
+    sub_col = get_subdomains_collection()
+    sub_doc = sub_col.find_one({"scan_id": scan_id})
+    if sub_doc and 'subdomains' in sub_doc:
+        results['subdomains'] = sub_doc['subdomains']
+        
+    # 2. Technologies
+    tech_col = get_technologies_collection()
+    tech_docs = tech_col.find({"scan_id": scan_id})
+    results['technologies'] = list(set(doc['name'] for doc in tech_docs if 'name' in doc))
+    
+    # 3. Nmap / Ports
+    # Nmap results are stored in 'scans' collection with type='nmap'
+    scans_col = get_scans_collection()
+    nmap_doc = scans_col.find_one({"scan_id": scan_id, "type": "nmap"})
+    if nmap_doc and 'results' in nmap_doc:
+        results['open_ports'] = nmap_doc['results'] # List of dicts {port, service, protocol}
+        
+    # 4. Live Assets
+    assets_col = get_assets_collection()
+    asset_docs = assets_col.find({"scan_id": scan_id})
+    for doc in asset_docs:
+        results['live_assets'].append({
+            'url': doc.get('domain'), # or construct URL
+            'ip': doc.get('ip'),
+            'status_code': doc.get('status_code'),
+            'tech': doc.get('tech', [])
+        })
+
+    # 5. WAF
+    # WAF is usually in the Master Scan 'results_summary' or we can log it separately
+    # app/tasks/recon.py updates master scan results_summary['waf']
+    master_scan = scans_col.find_one({"scan_id": scan_id, "type": "master"})
+    if master_scan and 'results_summary' in master_scan:
+        summary = master_scan['results_summary']
+        if 'waf' in summary:
+            results['waf'] = summary['waf']
+        
+        # Fallback/Merge if summary has recent data
+        if not results['subdomains'] and 'subdomains' in summary:
+             results['subdomains'] = summary['subdomains']
+        if not results['technologies'] and 'technologies' in summary:
+             results['technologies'] = summary['technologies']
+             
+    return jsonify(results)
+
+@bp.route('/api/scan/<scan_id>/vulns')
+def get_vulns(scan_id):
+    """Fetch all vulnerabilities/findings for a scan."""
+    vuln_col = get_vulnerabilities_collection()
+    findings = list(vuln_col.find({"scan_id": scan_id}).sort("severity", 1)) 
+    
+    clean_findings = []
+    for f in findings:
+        # Normalize fields for Frontend
+        if '_id' in f: del f['_id']
+        
+        # 1. Normalize Severity
+        # Dalfox: severity (TitleCase)
+        # Nuclei: info.severity (lowercase)
+        # WPScan: severity (TitleCase)
+        sev = f.get('severity')
+        if not sev and 'info' in f and 'severity' in f['info']:
+            sev = f['info']['severity']
+        if not sev: sev = 'Info'
+        f['severity'] = str(sev).upper() # HIGH, MEDIUM, LOW
+        
+        # 2. Normalize Name
+        # Dalfox: message_str or name? Dalfox has CWE often.
+        # Nuclei: info.name
+        name = f.get('name')
+        if not name and 'info' in f and 'name' in f['info']:
+            name = f['info']['name']
+        if not name and 'message_str' in f:
+            name = f['message_str']
+        f['name'] = name or 'Unknown Issue'
+        
+        clean_findings.append(f)
+            
+    return jsonify({'findings': clean_findings})

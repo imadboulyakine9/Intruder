@@ -438,6 +438,10 @@ class ScanManager:
              return []
              
         # Command: dalfox file urls.txt --format json -o output.json
+        # Note: Dalfox sometimes appends to the file if it exists, or writes multiple JSON arrays
+        if os.path.exists(output_file):
+            os.remove(output_file)
+
         command = ["dalfox", "file", target_urls_file, "--format", "json", "-o", output_file]
         
         self._run_with_stream(command, callback)
@@ -447,31 +451,165 @@ class ScanManager:
         if os.path.exists(output_file):
             try:
                 with open(output_file, 'r') as f:
-                    # Dalfox json format is typically a JSON object per line or an array
-                    # Let's assume JSON array for safety if --format json puts it in array, 
-                    # else check lines.
-                    # Dalfox often puts multiple JSON objects one after another or in array.
-                    # We'll try loading as one JSON first.
+                    content = f.read()
+
+                # Robust parsing for concatenated JSON arrays (e.g. [...] [...] or lines with trailing commas)
+                lines = content.splitlines()
+                for line in lines:
+                    line = line.strip()
+                    if not line: continue
+                    if line == '[': continue
+                    if line == ']': continue
+                    
+                    # Clean trailing commas and bracket leftovers
+                    if line.endswith(','):
+                        line = line[:-1]
+                    if line.endswith('}]'): # Handle closing array on same line
+                        line = line[:-1]
+                    if line.endswith(']'): # Handle lone closing bracket
+                         line = line[:-1]
+
                     try:
-                        data = json.load(f)
-                        if isinstance(data, list):
-                            pocs = data
-                        else:
-                            pocs = [data]
+                        obj = json.loads(line)
+                        if isinstance(obj, dict) and obj: # Filter empty objects
+                             # Dalfox often outputs empty {} for some reason
+                             if 'type' in obj or 'cwe' in obj or 'severity' in obj:
+                                 pocs.append(obj)
                     except:
-                        # Try line by line
-                         f.seek(0)
-                         for line in f:
-                             try:
-                                 pocs.append(json.loads(line))
-                             except:
-                                 pass
+                        pass
             except Exception as e:
                 if callback: callback(f"Error parsing Dalfox output: {e}")
 
-        # Filter only verified checks if needed? Dalfox usually reports confirmed/potential.
-        
         return pocs
+
+    def run_sqlmap(self, target_url, callback=None):
+        """
+        Runs SQLMap on a specific URL.
+        Command: sqlmap -u "http://site.com?id=1" --batch --random-agent --json
+        """
+        # Ensure target is a URL
+        if not target_url.startswith('http'): 
+            # In Phase 3, we ensure we pass a full URL, but safety first
+            target_url = f"http://{target_url}"
+            
+        safe_name = target_url.replace('://', '_').replace('/', '_').replace('?', '_').replace('&', '_')[:50]
+        output_dir = os.path.join(self.output_dir, f"sqlmap_{safe_name}")
+        
+        if not shutil.which("sqlmap"):
+            if callback: callback("Error: SQLMap not found.")
+            return []
+            
+        # SQLmap doesn't output JSON cleanly to a file in a simple way for findings. 
+        # But we can read its output directory or use --parse-results.
+        # Ideally, we run with --batch and look at the output or stdout.
+        # We will iterate stdout to find "[CRITICAL]" or "identified the following injection point(s)".
+        
+        command = [
+            "sqlmap", "-u", target_url, 
+            "--batch", "--random-agent", 
+            "--output-dir", output_dir,
+            "--forms", "--crawl=2", # Aggressive for demo
+            "--level=1", "--risk=1" # Safe for demo
+        ]
+        
+        self._run_with_stream(command, callback)
+        
+        # Parse Results (SQLMap saves data in CSV/Target.csv usually)
+        findings = []
+        try:
+            # SQLMap output structure: output_dir/hostname/log
+            # We need to find the CSV log
+            for root, dirs, files in os.walk(output_dir):
+                if "log" in files:
+                    log_path = os.path.join(root, "log")
+                    # data is format: Type, Title, Payload...
+                    with open(log_path, 'r') as f:
+                        for line in f:
+                            if "Type:" in line: # simplistic parsing
+                                findings.append({"raw": line.strip(), "url": target_url})
+        except Exception as e:
+            if callback: callback(f"Error parsing SQLMap results: {e}")
+            
+        return findings
+
+    def run_wpscan(self, target, callback=None):
+        """
+        Runs WPScan.
+        """
+        safe_name = target.replace('://', '_').replace('/', '_')
+        output_file = os.path.join(self.output_dir, f"{safe_name}_wpscan.json")
+        
+        if not shutil.which("wpscan"):
+            if callback: callback("Error: WPScan not found.")
+            return []
+
+        command = [
+            "wpscan", "--url", target, 
+            "--format", "json", "-o", output_file,
+            "--random-user-agent", "--disable-tls-checks"
+        ]
+        
+        self._run_with_stream(command, callback)
+        
+        findings = []
+        if os.path.exists(output_file):
+            try:
+                with open(output_file, 'r') as f:
+                    data = json.load(f)
+                    # Parse Interesting Findings
+                    # WPScan structure: { "version": {...}, "vulnerabilities": [...] }
+                    
+                    if "version" in data and data["version"]:
+                        findings.append({"name": f"WordPress Version {data['version'].get('number')}", "severity": "Info"})
+                        
+                    for vuln_type in ["vulnerabilities", "plugins", "themes"]:
+                         if vuln_type in data:
+                             # Plugins/Themes is a dict of items
+                             if isinstance(data[vuln_type], dict):
+                                 for component in data[vuln_type].values():
+                                     if "vulnerabilities" in component and component["vulnerabilities"]:
+                                         for v in component["vulnerabilities"]:
+                                             findings.append({
+                                                 "name": v.get("title"),
+                                                 "severity": "High", # WPScan confirmed vulns are usually actionable
+                                                 "ref": v.get("references", {})
+                                             })
+                             elif isinstance(data[vuln_type], list):
+                                 for v in data[vuln_type]:
+                                      findings.append({
+                                         "name": v.get("title"),
+                                         "severity": "High"
+                                      })
+
+            except Exception as e:
+                if callback: callback(f"Error parsing WPScan output: {e}")
+        
+        return findings
+
+    def run_commix(self, target_url, callback=None):
+        """
+        Runs Commix for Command Injection.
+        """
+        safe_name = target_url.replace('://', '_').replace('/', '_').replace('?', '_')[:50]
+        output_dir = os.path.join(self.output_dir, f"commix_{safe_name}")
+        
+        if not shutil.which("commix"):
+            if callback: callback("Error: Commix not found.")
+            return []
+            
+        command = [
+            "commix", "--url", target_url,
+            "--batch", "--output-dir", output_dir
+        ]
+        
+        self._run_with_stream(command, callback)
+        
+        # Commix is hard to parse programmatically without proper log
+        # We assume if it finds something, it says "(!) The target is injectable" in stdout
+        # But we rely on the file output if possible. Commix doesn't have great JSON support.
+        # We'll return a generic "Check logs" finding if we detect success in logs (implemented via stream parsing ideally)
+        # For this demo, we'll return empty list unless we implemented stream scraping.
+        return []
 
     def run_crawler(self, start_urls):
         """

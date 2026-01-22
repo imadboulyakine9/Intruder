@@ -117,3 +117,85 @@ def dalfox_scan(self, target, scan_id=None):
 
     socketio.emit('task_update', {'status': f'Dalfox completed. Found {len(pocs)} PoCs.', 'percent': 100, 'scan_id': scan_id})
     return {'tool': 'Dalfox', 'count': len(pocs)}
+
+@celery_app.task(bind=True)
+def sqlmap_scan(self, target, scan_id=None):
+    """
+    Celery task to run SQLMap.
+    Target MUST be a URL with parameters.
+    """
+    manager = ScanManager()
+    r_client = get_redis_client()
+
+    def on_output(line):
+        socketio.emit('tool_output', {'line': line, 'tool': 'SQLMap', 'scan_id': scan_id})
+        if scan_id:
+            r_client.rpush(f"logs:{scan_id}", f"[SQLMap] {line}")
+            r_client.ltrim(f"logs:{scan_id}", -50, -1)
+
+    socketio.emit('task_update', {'status': f'Starting SQLMap on {target}...', 'percent': 10, 'scan_id': scan_id})
+    
+    findings = manager.run_sqlmap(target, callback=on_output)
+    
+    if findings:
+        vuln_col = get_vulnerabilities_collection()
+        for item in findings:
+            item['scan_id'] = scan_id
+            item['target'] = target
+            item['tool'] = 'SQLMap'
+            item['severity'] = 'Critical' # SQLi is usually Critical
+            item['name'] = 'SQL Injection Detected'
+            item['discovered_at'] = datetime.datetime.utcnow()
+            vuln_col.insert_one(item)
+            
+    socketio.emit('task_update', {'status': f'SQLMap completed. Found {len(findings)} injection points.', 'percent': 100, 'scan_id': scan_id})
+    return {'tool': 'SQLMap', 'count': len(findings)}
+
+@celery_app.task(bind=True)
+def wpscan_scan(self, target, scan_id=None):
+    """
+    Celery task to run WPScan.
+    """
+    manager = ScanManager()
+    r_client = get_redis_client()
+
+    def on_output(line):
+        socketio.emit('tool_output', {'line': line, 'tool': 'WPScan', 'scan_id': scan_id})
+        if scan_id:
+            r_client.rpush(f"logs:{scan_id}", f"[WPScan] {line}")
+
+    socketio.emit('task_update', {'status': f'Starting WPScan on {target}...', 'percent': 10, 'scan_id': scan_id})
+    
+    findings = manager.run_wpscan(target, callback=on_output)
+    
+    if findings:
+        vuln_col = get_vulnerabilities_collection()
+        for item in findings:
+            item['scan_id'] = scan_id
+            item['target'] = target
+            item['tool'] = 'WPScan'
+            item['discovered_at'] = datetime.datetime.utcnow()
+            vuln_col.insert_one(item)
+            
+    socketio.emit('task_update', {'status': f'WPScan completed. Found {len(findings)} issues.', 'percent': 100, 'scan_id': scan_id})
+    return {'tool': 'WPScan', 'count': len(findings)}
+
+@celery_app.task(bind=True)
+def commix_scan(self, target, scan_id=None):
+    """
+    Celery task to run Commix.
+    """
+    manager = ScanManager()
+    r_client = get_redis_client()
+
+    def on_output(line):
+        socketio.emit('tool_output', {'line': line, 'tool': 'Commix', 'scan_id': scan_id})
+        if scan_id:
+            r_client.rpush(f"logs:{scan_id}", f"[Commix] {line}")
+
+    socketio.emit('task_update', {'status': f'Starting Commix on {target}...', 'percent': 10, 'scan_id': scan_id})
+    
+    manager.run_commix(target, callback=on_output)
+    
+    socketio.emit('task_update', {'status': 'Commix completed. Check logs for details.', 'percent': 100, 'scan_id': scan_id})
+    return {'tool': 'Commix', 'count': 0}
