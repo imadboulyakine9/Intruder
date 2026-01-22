@@ -15,8 +15,11 @@ def nuclei_scan(self, target, scan_id=None):
     def on_output(line):
         socketio.emit('tool_output', {'line': line, 'tool': 'Nuclei', 'scan_id': scan_id})
         if scan_id:
-            r_client.rpush(f"logs:{scan_id}", f"[Nuclei] {line}")
-            r_client.ltrim(f"logs:{scan_id}", -50, -1) # Keep last 50 lines
+            try:
+                r_client.rpush(f"logs:{scan_id}", f"[Nuclei] {line}")
+                r_client.ltrim(f"logs:{scan_id}", -50, -1) # Keep last 50 lines
+            except Exception as e:
+                socketio.emit('tool_output', {'line': f"[Redis Error] {e}", 'tool': 'Nuclei', 'scan_id': scan_id})
 
     socketio.emit('task_update', {'status': f'Starting Nuclei scan on {target}...', 'percent': 10, 'scan_id': scan_id})
     if scan_id:
@@ -63,13 +66,12 @@ def dalfox_scan(self, target, scan_id=None):
     
     # 1. Gather URLs
     urls = set()
-    
     # From attackable_urls (high priority)
     atk_col = get_attackable_urls_collection()
     cursor = atk_col.find({"target": target})
     for doc in cursor:
-        if 'url' in doc: urls.add(doc['url'])
-        
+        if 'url' in doc:
+            urls.add(doc['url'])
     # From subdomains (as simple urls)
     sub_col = get_subdomains_collection()
     sub_cursor = sub_col.find({"target": target})
@@ -78,9 +80,8 @@ def dalfox_scan(self, target, scan_id=None):
             for sub in doc['subdomains']:
                 urls.add(f"http://{sub}")
                 urls.add(f"https://{sub}")
-                
+    # Fallback: just the target itself if no URLs found in DB
     if not urls:
-        # Fallback: just the target itself
         urls.add(f"http://{target}")
         urls.add(f"https://{target}")
         
@@ -95,8 +96,11 @@ def dalfox_scan(self, target, scan_id=None):
     def on_output(line):
         socketio.emit('tool_output', {'line': line, 'tool': 'Dalfox', 'scan_id': scan_id})
         if scan_id:
-            r_client.rpush(f"logs:{scan_id}", f"[Dalfox] {line}")
-            r_client.ltrim(f"logs:{scan_id}", -50, -1)
+            try:
+                r_client.rpush(f"logs:{scan_id}", f"[Dalfox] {line}")
+                r_client.ltrim(f"logs:{scan_id}", -50, -1)
+            except Exception as e:
+                socketio.emit('tool_output', {'line': f"[Redis Error] {e}", 'tool': 'Dalfox', 'scan_id': scan_id})
 
     socketio.emit('task_update', {'status': f'Starting Dalfox scan on {len(urls)} URLs...', 'percent': 10, 'scan_id': scan_id})
     if scan_id:
@@ -130,11 +134,16 @@ def sqlmap_scan(self, target, scan_id=None):
     def on_output(line):
         socketio.emit('tool_output', {'line': line, 'tool': 'SQLMap', 'scan_id': scan_id})
         if scan_id:
-            r_client.rpush(f"logs:{scan_id}", f"[SQLMap] {line}")
-            r_client.ltrim(f"logs:{scan_id}", -50, -1)
+            try:
+                r_client.rpush(f"logs:{scan_id}", f"[SQLMap] {line}")
+                r_client.ltrim(f"logs:{scan_id}", -50, -1)
+            except Exception as e:
+                socketio.emit('tool_output', {'line': f"[Redis Error] {e}", 'tool': 'SQLMap', 'scan_id': scan_id})
 
+    # Ensure target includes http:// or https://
+    if not (target.startswith('http://') or target.startswith('https://')):
+        target = f"http://{target}"
     socketio.emit('task_update', {'status': f'Starting SQLMap on {target}...', 'percent': 10, 'scan_id': scan_id})
-    
     findings = manager.run_sqlmap(target, callback=on_output)
     
     if findings:
@@ -162,7 +171,10 @@ def wpscan_scan(self, target, scan_id=None):
     def on_output(line):
         socketio.emit('tool_output', {'line': line, 'tool': 'WPScan', 'scan_id': scan_id})
         if scan_id:
-            r_client.rpush(f"logs:{scan_id}", f"[WPScan] {line}")
+            try:
+                r_client.rpush(f"logs:{scan_id}", f"[WPScan] {line}")
+            except Exception as e:
+                socketio.emit('tool_output', {'line': f"[Redis Error] {e}", 'tool': 'WPScan', 'scan_id': scan_id})
 
     socketio.emit('task_update', {'status': f'Starting WPScan on {target}...', 'percent': 10, 'scan_id': scan_id})
     
@@ -191,7 +203,10 @@ def commix_scan(self, target, scan_id=None):
     def on_output(line):
         socketio.emit('tool_output', {'line': line, 'tool': 'Commix', 'scan_id': scan_id})
         if scan_id:
-            r_client.rpush(f"logs:{scan_id}", f"[Commix] {line}")
+            try:
+                r_client.rpush(f"logs:{scan_id}", f"[Commix] {line}")
+            except Exception as e:
+                socketio.emit('tool_output', {'line': f"[Redis Error] {e}", 'tool': 'Commix', 'scan_id': scan_id})
 
     socketio.emit('task_update', {'status': f'Starting Commix on {target}...', 'percent': 10, 'scan_id': scan_id})
     

@@ -35,7 +35,7 @@ class ScanManager:
         """
         try:
             from app.celery_worker import socketio
-            
+            print(f"DEBUG: Executing {command}")
             print(f"[*] Running command: {command}")
             # Identify tool name for logging
             tool = command.split()[0]
@@ -60,26 +60,22 @@ class ScanManager:
             # Stream output
             for line in process.stdout:
                 line_clean = line.strip()
-                if line_clean:
-                    output_lines.append(line_clean)
-                    # Emit to frontend
-                    if self.scan_id:
-                        try:
-                            socketio.emit('tool_output', {
-                                'scan_id': self.scan_id,
-                                'tool': tool,
-                                'line': line_clean
-                            })
-                        except:
-                            pass
+                output_lines.append(line_clean)
+                # Emit to frontend
+                if self.scan_id:
+                    try:
+                        socketio.emit('tool_output', {
+                            'scan_id': self.scan_id,
+                            'tool': tool,
+                            'line': line_clean
+                        })
+                    except:
+                        pass
             
             process.wait(timeout=timeout)
-            
             if process.returncode != 0:
-                 raise subprocess.CalledProcessError(process.returncode, command, output='\n'.join(output_lines))
-                 
+                raise subprocess.CalledProcessError(process.returncode, command, output='\n'.join(output_lines))
             return '\n'.join(output_lines)
-            
         except subprocess.TimeoutExpired:
             print(f"[!] Command timed out after {timeout} seconds: {command}")
             raise Exception(f"Tool execution timed out after {timeout}s")
@@ -94,10 +90,10 @@ class ScanManager:
         """
         base_name = os.path.basename(target_file).replace('_subdomains.txt', '')
         output_file = os.path.join(self.output_dir, f"{base_name}_live.json")
-        
+
         # Determine the correct binary name
-        # Kali installs it as 'httpx-toolkit', others might use 'httpx'
-        httpx_bin = "httpx"
+        # Prefer httpx-toolkit, fallback to httpx, allow hardcoded path if needed
+        httpx_bin = None
         if shutil.which("httpx-toolkit"):
             httpx_bin = "httpx-toolkit"
         elif shutil.which("httpx"):
@@ -106,11 +102,16 @@ class ScanManager:
                 subprocess.run(["httpx", "-version"], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
                 httpx_bin = "httpx"
             except:
-                # Likely the python lib, keep searching or fail
                 print("[!] 'httpx' command seems to be the Python library. Please install the Go tool (httpx-toolkit).")
-                pass
-        
-        if not shutil.which(httpx_bin):
+        # Hardcoded fallback (edit as needed for your system)
+        if not httpx_bin:
+            possible_paths = ["/usr/local/bin/httpx", "/usr/bin/httpx", "/usr/bin/httpx-toolkit"]
+            for path in possible_paths:
+                if os.path.exists(path) and os.access(path, os.X_OK):
+                    httpx_bin = path
+                    break
+
+        if not httpx_bin or not shutil.which(httpx_bin):
             print("[!] httpx tool not found. Skipping live check.")
             return []
 
@@ -119,7 +120,7 @@ class ScanManager:
         # -o: output file
         # -silent: less noise
         command = f"{httpx_bin} -l {target_file} -json -o {output_file} -silent"
-        
+
         try:
             self._run_command(command, timeout=300)
         except Exception as e:
@@ -133,12 +134,11 @@ class ScanManager:
                 for line in f:
                     if line.strip():
                         try:
-                            # httpx outputs one JSON object per line using -json
                             data = json.loads(line)
                             live_hosts.append(data)
                         except:
                             pass
-        
+
         return live_hosts
 
     def run_subfinder(self, target):
@@ -146,24 +146,27 @@ class ScanManager:
         Runs subfinder on the target domain.
         Command: subfinder -d target.com -o output.txt
         """
-        # Sanitize target (Subfinder crashes on URLs/Ports)
-        # Force aggressive strippping of http://, path, and port
-        domain = target.replace("http://", "").replace("https://", "").split("/")[0].split(":")[0]
-             
+        # Clean and sanitize target for subfinder (remove http://, https://, path, port)
+        cleaned = target.strip()
+        if cleaned.startswith("http://"):
+            cleaned = cleaned[len("http://"):]
+        elif cleaned.startswith("https://"):
+            cleaned = cleaned[len("https://"):]
+        domain = cleaned.split("/")[0].split(":")[0]
+
         # Fallback if cleaning failed or empty
         if not domain:
             domain = "unknown_target"
-            
+
         print(f"[*] Subfinder sanitized target: {target} -> {domain}")
         output_file = os.path.join(self.output_dir, f"{domain}_subdomains.txt")
-        
+
         # Verify subfinder is installed
         if not shutil.which("subfinder"):
             print("[-] Subfinder not installed")
             return [domain]
 
         # Skip localhost/IPs to avoid tool errors (Subfinder parses passive DNS)
-        # It panics on localhost:3000 input
         if domain in ['localhost', '127.0.0.1']:
             print("[*] Localhost detected. Skipping Subfinder.")
             return [domain] # Return self so HTTPX has something to scan
@@ -171,14 +174,14 @@ class ScanManager:
         # Construct command
         # Exclude digitorus source as it works unstable in some environments causing a crash
         command = f"subfinder -d {domain} -o {output_file} -es digitorus"
-        
+
         try:
             self._run_command(command, timeout=300)
         except Exception as e:
             print(f"[!] Command failed: {e}")
             # Don't raise here, allow workflow to continue to next tool (Nmap)
             pass
-            
+
         # Read and return results
         subdomains = []
         if os.path.exists(output_file):
@@ -193,7 +196,7 @@ class ScanManager:
             # Ensure the file exists for httpx
             with open(output_file, 'w') as f:
                 f.write(domain + "\n")
-        
+
         return subdomains
 
     def run_nmap(self, target):
@@ -485,51 +488,45 @@ class ScanManager:
     def run_sqlmap(self, target_url, callback=None):
         """
         Runs SQLMap on a specific URL.
-        Command: sqlmap -u "http://site.com?id=1" --batch --random-agent --json
+        Command: sqlmap -u "http://site.com?id=1" --batch --answers="keep testing=Y" --random-agent --json
         """
         # Ensure target is a URL
-        if not target_url.startswith('http'): 
-            # In Phase 3, we ensure we pass a full URL, but safety first
+        if not target_url.startswith('http'):
             target_url = f"http://{target_url}"
-            
+
         safe_name = target_url.replace('://', '_').replace('/', '_').replace('?', '_').replace('&', '_')[:50]
         output_dir = os.path.join(self.output_dir, f"sqlmap_{safe_name}")
-        
+
         if not shutil.which("sqlmap"):
-            if callback: callback("Error: SQLMap not found.")
+            if callback:
+                callback("Error: SQLMap not found.")
             return []
-            
-        # SQLmap doesn't output JSON cleanly to a file in a simple way for findings. 
-        # But we can read its output directory or use --parse-results.
-        # Ideally, we run with --batch and look at the output or stdout.
-        # We will iterate stdout to find "[CRITICAL]" or "identified the following injection point(s)".
-        
+
+        # Updated command to include --answers="keep testing=Y"
         command = [
-            "sqlmap", "-u", target_url, 
-            "--batch", "--random-agent", 
+            "sqlmap", "-u", target_url,
+            "--batch", "--answers=keep testing=Y", "--random-agent",
             "--output-dir", output_dir,
-            "--forms", "--crawl=2", # Aggressive for demo
-            "--level=1", "--risk=1" # Safe for demo
+            "--forms", "--crawl=2",
+            "--level=1", "--risk=1"
         ]
-        
+
         self._run_with_stream(command, callback)
-        
-        # Parse Results (SQLMap saves data in CSV/Target.csv usually)
+
+        # Improved parser: look for lines containing 'Parameter:' in the log file
         findings = []
         try:
-            # SQLMap output structure: output_dir/hostname/log
-            # We need to find the CSV log
             for root, dirs, files in os.walk(output_dir):
                 if "log" in files:
                     log_path = os.path.join(root, "log")
-                    # data is format: Type, Title, Payload...
                     with open(log_path, 'r') as f:
                         for line in f:
-                            if "Type:" in line: # simplistic parsing
-                                findings.append({"raw": line.strip(), "url": target_url})
+                            if "Parameter:" in line:
+                                findings.append({"parameter": line.strip(), "url": target_url})
         except Exception as e:
-            if callback: callback(f"Error parsing SQLMap results: {e}")
-            
+            if callback:
+                callback(f"Error parsing SQLMap results: {e}")
+
         return findings
 
     def run_wpscan(self, target, callback=None):
@@ -592,24 +589,35 @@ class ScanManager:
         """
         safe_name = target_url.replace('://', '_').replace('/', '_').replace('?', '_')[:50]
         output_dir = os.path.join(self.output_dir, f"commix_{safe_name}")
-        
         if not shutil.which("commix"):
-            if callback: callback("Error: Commix not found.")
+            if callback:
+                callback("Error: Commix not found.")
             return []
-            
         command = [
             "commix", "--url", target_url,
             "--batch", "--output-dir", output_dir
         ]
-        
-        self._run_with_stream(command, callback)
-        
-        # Commix is hard to parse programmatically without proper log
-        # We assume if it finds something, it says "(!) The target is injectable" in stdout
-        # But we rely on the file output if possible. Commix doesn't have great JSON support.
-        # We'll return a generic "Check logs" finding if we detect success in logs (implemented via stream parsing ideally)
-        # For this demo, we'll return empty list unless we implemented stream scraping.
-        return []
+        # Capture stdout for parsing
+        try:
+            process = subprocess.Popen(
+                command,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.STDOUT,
+                text=True,
+                bufsize=1
+            )
+            findings = []
+            for line in process.stdout:
+                if callback:
+                    callback(line.strip())
+                if "(!) The target is injectable" in line:
+                    findings.append({"result": "Target is injectable", "url": target_url})
+            process.wait()
+            return findings
+        except Exception as e:
+            if callback:
+                callback(f"Error running Commix: {e}")
+            return []
 
     def run_crawler(self, start_urls):
         """
