@@ -425,13 +425,28 @@
                                                 <th>VULNERABILITY</th>
                                                 <th>TOOL</th>
                                                 <th>LOCATION</th>
-                                                <th>EVIDENCE</th>
+                                                <th>ACTION</th>
                                             </tr>
                                         </thead>
                                         <tbody id="findings-body">
                                             <!-- JS will populate -->
                                         </tbody>
                                     </table>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Evidence Locker Modal -->
+                    <div class="modal fade" id="evidenceModal" tabindex="-1" aria-labelledby="evidenceModalLabel" aria-hidden="true">
+                        <div class="modal-dialog modal-lg modal-dialog-centered">
+                            <div class="modal-content bg-panel border-secondary">
+                                <div class="modal-header">
+                                    <h5 class="modal-title font-mono" id="evidenceModalLabel">Evidence Locker</h5>
+                                    <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal" aria-label="Close"></button>
+                                </div>
+                                <div class="modal-body">
+                                    <div id="evidenceModalContent" class="font-mono small"></div>
                                 </div>
                             </div>
                         </div>
@@ -1074,40 +1089,86 @@
         async function fetchFindings() {
             if (!scanId) return;
             const container = document.getElementById('findings-container');
-            if (!container) return; // Might not exist yet if I haven't updated HTML
-
+            if (!container) return;
             try {
                 const res = await fetch(`/api/scan/${scanId}/vulns`);
                 const data = await res.json();
-                
+                const findingsSection = document.getElementById('findings-section');
+                const tbody = document.getElementById('findings-body');
                 if(data.findings && data.findings.length > 0) {
-                     document.getElementById('findings-section').style.display = 'block';
-                     const tbody = document.getElementById('findings-body');
-                     tbody.innerHTML = '';
-                     
-                     data.findings.forEach(vuln => {
-                         const tr = document.createElement('tr');
-                         
-                         // Determine Severity Color
-                         let sevColor = 'text-white';
-                         let sev = (vuln.severity || 'INFO').toUpperCase();
-                         if(sev === 'HIGH' || sev === 'CRITICAL') sevColor = 'text-danger';
-                         else if(sev === 'MEDIUM') sevColor = 'text-warning';
-                         else if(sev === 'LOW') sevColor = 'text-info';
-
-                         tr.innerHTML = `
-                             <td class="${sevColor} fw-bold">${sev}</td>
-                             <td>${vuln.name || vuln.info?.name || 'Unknown Issue'}</td>
-                             <td><span class="badge bg-secondary">${vuln.tool}</span></td>
-                             <td class="small font-mono text-truncate" style="max-width: 200px;">${vuln.url || vuln.host || ''}</td>
-                             <td><button class="btn btn-sm btn-outline-light" onclick='alert(JSON.stringify(${JSON.stringify(vuln)}, null, 2))'>Details</button></td>
-                         `;
-                         tbody.appendChild(tr);
-                     });
+                    findingsSection.style.display = 'block';
+                    tbody.innerHTML = '';
+                    data.findings.forEach((vuln, idx) => {
+                        const tr = document.createElement('tr');
+                        // Determine Severity Color
+                        let sevColor = 'text-white';
+                        let sev = (vuln.severity || 'INFO').toUpperCase();
+                        if(sev === 'HIGH' || sev === 'CRITICAL') sevColor = 'text-danger';
+                        else if(sev === 'MEDIUM') sevColor = 'text-warning';
+                        else if(sev === 'LOW') sevColor = 'text-info';
+                        // Store evidence as data attribute (stringified)
+                        const evidenceData = encodeURIComponent(JSON.stringify(vuln));
+                        tr.innerHTML = `
+                            <td class="${sevColor} fw-bold">${sev}</td>
+                            <td>${vuln.name || (vuln.info && vuln.info.name) || 'Unknown Issue'}</td>
+                            <td><span class="badge bg-secondary">${vuln.tool}</span></td>
+                            <td class="small font-mono text-truncate" style="max-width: 200px;">${vuln.url || vuln.host || ''}</td>
+                            <td><button class="btn btn-sm btn-outline-info view-evidence-btn" data-evidence="${evidenceData}" data-tool="${vuln.tool}" data-bs-toggle="modal" data-bs-target="#evidenceModal">View Evidence</button></td>
+                        `;
+                        tbody.appendChild(tr);
+                    });
+                } else {
+                    findingsSection.style.display = 'block';
+                    tbody.innerHTML = `<tr><td colspan="5" class="text-center text-muted">No Vulnerabilities Found</td></tr>`;
                 }
             } catch (e) { console.error("Findings Fetch Error:", e); }
         }
-        
+
+        // Modal logic for Evidence Locker
+        document.addEventListener('click', function(e) {
+            if (e.target && e.target.classList.contains('view-evidence-btn')) {
+                const evidenceStr = decodeURIComponent(e.target.getAttribute('data-evidence'));
+                let vuln;
+                try { vuln = JSON.parse(evidenceStr); } catch { vuln = {}; }
+                const tool = (e.target.getAttribute('data-tool') || '').toLowerCase();
+                const modalContent = document.getElementById('evidenceModalContent');
+                if (!modalContent) return;
+
+                // Format evidence based on tool
+                let html = '';
+                html += `<div class="mb-2"><span class="fw-bold">Vulnerability:</span> ${vuln.name || (vuln.info && vuln.info.name) || 'Unknown'}</div>`;
+                html += `<div class="mb-2"><span class="fw-bold">Tool:</span> ${vuln.tool || 'Unknown'}</div>`;
+                html += `<div class="mb-2"><span class="fw-bold">Severity:</span> ${(vuln.severity || 'INFO').toUpperCase()}</div>`;
+                html += `<div class="mb-2"><span class="fw-bold">Location:</span> ${vuln.url || vuln.host || 'N/A'}</div>`;
+                html += `<hr/>`;
+
+                // Tool-specific formatting
+                if (tool === 'dalfox') {
+                    // Dalfox: try to pretty-print payload, param, message, etc.
+                    if (vuln.param || vuln.payload || vuln.message_str || vuln.inject_type) {
+                        html += `<div class="mb-2"><span class="fw-bold">Parameter:</span> ${vuln.param || ''}</div>`;
+                        html += `<div class="mb-2"><span class="fw-bold">Payload:</span> <code>${vuln.payload || ''}</code></div>`;
+                        html += `<div class="mb-2"><span class="fw-bold">Injection Type:</span> ${vuln.inject_type || ''}</div>`;
+                        html += `<div class="mb-2"><span class="fw-bold">Message:</span> ${vuln.message_str || ''}</div>`;
+                    } else {
+                        html += `<pre class="bg-dark p-2 rounded">${JSON.stringify(vuln, null, 2)}</pre>`;
+                    }
+                } else if (tool === 'sqlmap') {
+                    // SQLMap: show relevant fields
+                    if (vuln.data) {
+                        html += `<div class="mb-2"><span class="fw-bold">Details:</span></div>`;
+                        html += `<pre class="bg-dark p-2 rounded">${JSON.stringify(vuln.data, null, 2)}</pre>`;
+                    } else {
+                        html += `<pre class="bg-dark p-2 rounded">${JSON.stringify(vuln, null, 2)}</pre>`;
+                    }
+                } else {
+                    // Default: pretty-print all evidence
+                    html += `<pre class="bg-dark p-2 rounded">${JSON.stringify(vuln, null, 2)}</pre>`;
+                }
+                modalContent.innerHTML = html;
+            }
+        });
+
         // Poll for findings every 5 seconds if attacking
         setInterval(fetchFindings, 5000);
         fetchFindings();
