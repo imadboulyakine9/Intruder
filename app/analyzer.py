@@ -152,6 +152,27 @@ class Analyzer:
              "specific_targets": commix_targets[:10]
         })
 
+        # 6. Nikto (Web Server)
+        nikto_score = 40
+        nikto_reason = "Comprehensive web server scanner (6700+ checks)."
+        if waf_detected:
+            nikto_score = 10
+            nikto_reason = "WAF detected (Nikto is noisy)."
+        else:
+            nikto_score = 70
+            # Keep the detailed reason if score is high, or append it?
+            # User specifically asked for the description. 
+            # I will prepend it to the reason or just use it. 
+            # "Comprehensive web server scanner (6700+ checks)."
+            pass
+
+        results.append({
+            "tool": "Nikto",
+            "score": nikto_score,
+            "reason": nikto_reason,
+            "specific_targets": []
+        })
+
         # Sort by score (Highest first)
         return sorted(results, key=lambda x: x['score'], reverse=True)
 

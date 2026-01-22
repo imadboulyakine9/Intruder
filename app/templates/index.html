@@ -311,9 +311,13 @@
                                         <input class="form-check-input" type="checkbox" value="nmap" id="checkNmap" checked>
                                         <label class="form-check-label text-white">Port Scanning (Nmap)</label>
                                     </div>
-                                    <div class="form-check mb-3">
+                                    <div class="form-check mb-2">
                                         <input class="form-check-input" type="checkbox" value="wappalyzer" id="checkWap" checked>
                                         <label class="form-check-label text-white">Tech Detection</label>
+                                    </div>
+                                    <div class="form-check mb-2">
+                                        <input class="form-check-input" type="checkbox" value="ffuf" id="checkFfuf" checked>
+                                        <label class="form-check-label text-white">Directory Fuzzing (ffuf)</label>
                                     </div>
                                     <button id="launchScanBtn" class="btn btn-primary w-100 font-mono" {% if current_scan.status == 'scanning' or current_scan.status == 'attacking' %}disabled{% endif %}>
                                         <i class="bi bi-play-fill"></i> {% if current_scan.status == 'scanning' %}SCANNING...{% else %}START RECON{% endif %}
@@ -402,8 +406,75 @@
 
                         <!-- Terminal was moved to Overview -->
                         <!-- Replaced with a placeholder or just removed -->
-                        <div class="col-md-7 d-flex flex-column">
-                             <!-- Terminal Moved to Overview Tab as requested -->
+                        <div class="col-md-7 d-flex flex-column gap-4">
+                             <!-- Hidden Paths (FFUF) -->
+                             <div class="card bg-panel border-secondary flex-grow-1">
+                                <div class="card-header font-mono text-accent d-flex justify-content-between align-items-center">
+                                    <span>> HIDDEN PATHS DISCOVERED</span>
+                                    <span class="badge bg-dark border border-secondary text-accent" id="fuzz-count">{{ results.get('fuzzing', [])|length }}</span>
+                                </div>
+                                <div class="card-body p-0 overflow-auto" style="height: 400px;">
+                                    <table class="table table-dark table-hover mb-0 font-mono small">
+                                        <thead class="sticky-top bg-panel">
+                                            <tr>
+                                                <th>STATUS</th>
+                                                <th>PATH/URL</th>
+                                                <th>LENGTH</th>
+                                            </tr>
+                                        </thead>
+                                        <tbody id="fuzzing-body">
+                                            {% for res in results.get('fuzzing', []) %}
+                                            <tr>
+                                                <td>
+                                                    <span class="badge 
+                                                        {% if res.status == 200 %}bg-success
+                                                        {% elif res.status in [301, 302] %}bg-primary
+                                                        {% elif res.status == 403 %}bg-warning text-dark
+                                                        {% else %}bg-secondary{% endif %}">
+                                                        {{ res.status }}
+                                                    </span>
+                                                </td>
+                                                <td class="text-info">{{ res.url }}</td>
+                                                <td class="text-muted">{{ res.length }}</td>
+                                            </tr>
+                                            {% else %}
+                                            <tr><td colspan="3" class="text-center py-4 text-muted">No paths discovered yet. Run FFUF to begin.</td></tr>
+                                            {% endfor %}
+                                        </tbody>
+                                    </table>
+                                </div>
+                             </div>
+
+                             <!-- Infrastructure & Headers -->
+                             <div class="card bg-panel border-secondary">
+                                <div class="card-header font-mono text-info">> INFRASTRUCTURE & HEADERS</div>
+                                <div class="card-body">
+                                    {% set headers = results.get('headers', {}) %}
+                                    <div class="mb-4">
+                                        <h6 class="font-mono text-muted mb-2">SERVER VERSION</h6>
+                                        <div class="p-3 bg-dark rounded border border-secondary fs-4 text-accent font-mono" id="server-banner">
+                                            {{ headers.get('server', 'Unknown') }}
+                                        </div>
+                                    </div>
+
+                                    <h6 class="font-mono text-muted mb-3">SECURITY HEADER SCORE: <span class="text-white" id="header-score">{{ headers.get('score', 0) }}%</span></h6>
+                                    <div class="row g-2" id="header-grid">
+                                        {% for h in ["Content-Security-Policy", "Strict-Transport-Security", "X-Frame-Options", "X-Content-Type-Options", "Referrer-Policy", "Permissions-Policy"] %}
+                                        <div class="col-md-6">
+                                            <div class="p-2 rounded bg-black d-flex justify-content-between align-items-center border 
+                                                {% if h in headers.get('present', []) %}border-success{% else %}border-danger{% endif %}">
+                                                <small class="font-mono">{{ h }}</small>
+                                                {% if h in headers.get('present', []) %}
+                                                <i class="bi bi-check-circle-fill text-success"></i>
+                                                {% else %}
+                                                <i class="bi bi-x-circle-fill text-danger"></i>
+                                                {% endif %}
+                                            </div>
+                                        </div>
+                                        {% endfor %}
+                                    </div>
+                                </div>
+                             </div>
                         </div>
                     </div>
                 </div>
@@ -453,8 +524,9 @@
                     </div>
 
                     <!-- Section B: Attack Matrix -->
-                    <h5 class="text-white mb-3 font-mono">Attack Matrix & Suggestions</h5>
-                     {% if suggestions %}
+                    <div id="attack-matrix-wrapper">
+                        <h5 class="text-white mb-3 font-mono">Attack Matrix & Suggestions</h5>
+                         {% if suggestions %}
                     <div class="row">
                         {% for suggestion in suggestions %}
                         <div class="col-md-4 mb-3">
@@ -501,8 +573,24 @@
                             <i class="bi bi-cpu"></i> Run Auto-Analysis
                         </button>
                         <p class="text-muted">Run analysis to generate attack vector suggestions.</p>
+                        
+                        <!-- Static Nikto Card for Quick Access -->
+                        <div class="mt-4 pt-4 border-top border-secondary w-100 text-center">
+                            <div class="card border-secondary bg-transparent mx-auto" style="max-width: 400px;">
+                                <div class="card-body text-start">
+                                    <h5 class="card-title text-success font-mono mb-0"><i class="bi bi-crosshair"></i> Nikto</h5>
+                                    <p class="card-text text-muted small">Comprehensive web server scanner (6700+ checks).</p>
+                                    <button onclick="launchAttack('{{ current_scan.scan_id }}', 'Nikto')" 
+                                            class="btn btn-outline-light btn-sm w-100 font-mono mt-3">
+                                        LAUNCH ATTACK
+                                    </button>
+                                </div>
+                            </div>
+                        </div>
+
                     </div>
                     {% endif %}
+                    </div>
                 </div>
 
                 <!-- 4. Report Tab -->
@@ -805,6 +893,59 @@
                          });
                      }
                 }
+                
+                // 5. Fuzzing results
+                if(data.fuzzing || data.ffuf) {
+                     const fuzzData = data.fuzzing || data.ffuf;
+                     const body = document.getElementById('fuzzing-body');
+                     const count = document.getElementById('fuzz-count');
+                     if(body && count && fuzzData.length > 0) {
+                         body.innerHTML = '';
+                         count.textContent = fuzzData.length;
+                         fuzzData.forEach(res => {
+                             const tr = document.createElement('tr');
+                             let badgeClass = 'bg-secondary';
+                             if(res.status === 200) badgeClass = 'bg-success';
+                             else if([301, 302].includes(res.status)) badgeClass = 'bg-primary';
+                             else if(res.status === 403) badgeClass = 'bg-warning text-dark';
+                             
+                             tr.innerHTML = `
+                                 <td><span class="badge ${badgeClass}">${res.status}</span></td>
+                                 <td class="text-info">${res.url}</td>
+                                 <td class="text-muted">${res.length}</td>
+                             `;
+                             body.appendChild(tr);
+                         });
+                     }
+                }
+                
+                // 6. Header results
+                if(data.headers) {
+                     const banner = document.getElementById('server-banner');
+                     const score = document.getElementById('header-score');
+                     const grid = document.getElementById('header-grid');
+                     const headers = data.headers;
+                     
+                     if(banner) banner.textContent = headers.server || 'Unknown';
+                     if(score) score.textContent = `${headers.score || 0}%`;
+                     
+                     if(grid) {
+                         grid.innerHTML = '';
+                         const headerList = ["Content-Security-Policy", "Strict-Transport-Security", "X-Frame-Options", "X-Content-Type-Options", "Referrer-Policy", "Permissions-Policy"];
+                         headerList.forEach(h => {
+                             const isPresent = headers.present && headers.present.includes(h);
+                             const col = document.createElement('div');
+                             col.className = 'col-md-6';
+                             col.innerHTML = `
+                                 <div class="p-2 rounded bg-black d-flex justify-content-between align-items-center border ${isPresent ? 'border-success' : 'border-danger'}">
+                                     <small class="font-mono">${h}</small>
+                                     <i class="bi ${isPresent ? 'bi-check-circle-fill text-success' : 'bi-x-circle-fill text-danger'}"></i>
+                                 </div>
+                             `;
+                             grid.appendChild(col);
+                         });
+                     }
+                }
             } catch (e) { console.error("Recon Fetch Error:", e); }
         }
         // Fetch on load (in case of refresh)
@@ -900,6 +1041,58 @@
                          }
                      }
                      
+                     // 5. Fuzzing results
+                     if(data.partial_result.fuzzing) {
+                         const body = document.getElementById('fuzzing-body');
+                         const count = document.getElementById('fuzz-count');
+                         if(body && count) {
+                             body.innerHTML = '';
+                             count.textContent = data.partial_result.fuzzing.length;
+                             data.partial_result.fuzzing.forEach(res => {
+                                 const tr = document.createElement('tr');
+                                 let badgeClass = 'bg-secondary';
+                                 if(res.status === 200) badgeClass = 'bg-success';
+                                 else if([301, 302].includes(res.status)) badgeClass = 'bg-primary';
+                                 else if(res.status === 403) badgeClass = 'bg-warning text-dark';
+                                 
+                                 tr.innerHTML = `
+                                     <td><span class="badge ${badgeClass}">${res.status}</span></td>
+                                     <td class="text-info">${res.url}</td>
+                                     <td class="text-muted">${res.length}</td>
+                                 `;
+                                 body.appendChild(tr);
+                             });
+                         }
+                     }
+                     
+                     // 6. Header results
+                     if(data.partial_result.headers) {
+                         const banner = document.getElementById('server-banner');
+                         const score = document.getElementById('header-score');
+                         const grid = document.getElementById('header-grid');
+                         const headers = data.partial_result.headers;
+                         
+                         if(banner) banner.textContent = headers.server || 'Unknown';
+                         if(score) score.textContent = `${headers.score || 0}%`;
+                         
+                         if(grid) {
+                             grid.innerHTML = '';
+                             const headerList = ["Content-Security-Policy", "Strict-Transport-Security", "X-Frame-Options", "X-Content-Type-Options", "Referrer-Policy", "Permissions-Policy"];
+                             headerList.forEach(h => {
+                                 const isPresent = headers.present && headers.present.includes(h);
+                                 const col = document.createElement('div');
+                                 col.className = 'col-md-6';
+                                 col.innerHTML = `
+                                     <div class="p-2 rounded bg-black d-flex justify-content-between align-items-center border ${isPresent ? 'border-success' : 'border-danger'}">
+                                         <small class="font-mono">${h}</small>
+                                         <i class="bi ${isPresent ? 'bi-check-circle-fill text-success' : 'bi-x-circle-fill text-danger'}"></i>
+                                     </div>
+                                 `;
+                                 grid.appendChild(col);
+                             });
+                         }
+                     }
+
                      // 5. WAF Alert (Slow Mode)
                      if(data.partial_result.waf) {
                          // Add logic to show WAF alert if needed
@@ -930,10 +1123,16 @@
                     
                     if(res.ok && data.suggestions) {
                         // Re-render suggestions without reload
-                        const container = document.querySelector('#attack');
-                        if(!container) return;
+                        // Fix for targeting correct container to avoid wiping tab functionality
+                        const container = document.querySelector('#attack-matrix-wrapper');
                         
-                        let html = '<h5 class="text-white mb-3 font-mono">Attack Matrix (Suitability Scores)</h5><div class="row">';
+                        // If container doesn't exist (old cached HTML?), fallback to #attack but be careful
+                        if(!container) {
+                             console.warn("Attack Matrix wrapper not found, unexpected behavior may occur.");
+                             return;
+                        }
+                        
+                        let html = '<h5 class="text-white mb-3 font-mono">Attack Matrix & Suggestions</h5><div class="row">';
                         
                         data.suggestions.forEach(item => {
                             // Determine Color based on Score
@@ -1161,6 +1360,12 @@
                     } else {
                         html += `<pre class="bg-dark p-2 rounded">${JSON.stringify(vuln, null, 2)}</pre>`;
                     }
+                } else if (tool === 'nikto') {
+                    // Nikto formatting
+                     html += `<div class="mb-2"><span class="fw-bold">Description:</span> ${vuln.msg || vuln.message || ''}</div>`;
+                     if (vuln.osvdb) {
+                         html += `<div class="mb-2"><span class="fw-bold">OSVDB:</span> ${vuln.osvdb}</div>`;
+                     }
                 } else {
                     // Default: pretty-print all evidence
                     html += `<pre class="bg-dark p-2 rounded">${JSON.stringify(vuln, null, 2)}</pre>`;

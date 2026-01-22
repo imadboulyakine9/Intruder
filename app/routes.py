@@ -1,6 +1,6 @@
 from flask import Blueprint, render_template, jsonify, request
 from app.tasks.recon import workflow_task
-from app.tasks.attack import nuclei_scan, dalfox_scan, sqlmap_scan, wpscan_scan, commix_scan
+from app.tasks.attack import nuclei_scan, dalfox_scan, sqlmap_scan, wpscan_scan, commix_scan, nikto_scan
 from app.celery_worker import hello_world_task
 from app.analyzer import Analyzer
 from app.db import get_scans_collection, get_attackable_urls_collection, get_redis_client, get_subdomains_collection, get_vulnerabilities_collection, get_technologies_collection, get_assets_collection
@@ -174,6 +174,8 @@ def launch_attack():
         wpscan_scan.delay(target, scan_id)
     elif tool == 'Commix':
         commix_scan.delay(target, scan_id)
+    elif tool == 'Nikto':
+        nikto_scan.delay(target, scan_id)
     
     get_scans_collection().update_one(
         {"scan_id": scan_id},

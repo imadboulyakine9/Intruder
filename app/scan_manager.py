@@ -619,6 +619,162 @@ class ScanManager:
                 callback(f"Error running Commix: {e}")
             return []
 
+    def run_ffuf(self, target_url, callback=None):
+        """
+        Runs ffuf for directory/file fuzzing.
+        Command: ffuf -w common.txt -u target.com/FUZZ -o output.json -of json -mc 200,204,301,302,403
+        """
+        # Ensure protocol
+        if not target_url.startswith("http"):
+            target_url = "http://" + target_url
+
+        # Ensure target_url ends with /FUZZ if it doesn't have FUZZ already
+        if "FUZZ" not in target_url:
+            if not target_url.endswith("/"):
+                target_url += "/"
+            target_url += "FUZZ"
+        
+        safe_name = target_url.replace('://', '_').replace('/', '_').replace('?', '_').replace('FUZZ', 'fuzz')[:50]
+        output_file = os.path.join(self.output_dir, f"{safe_name}_ffuf.json")
+        
+        wordlist = "/usr/share/seclists/Discovery/Web-Content/common.txt"
+        
+        if not shutil.which("ffuf"):
+            if callback: callback("Error: ffuf not found.")
+            return []
+            
+        if not os.path.exists(wordlist):
+            if callback: callback(f"Error: Wordlist not found at {wordlist}")
+            # Fallback or just return empty
+            return []
+
+        # Construct command
+        # -w: wordlist
+        # -u: target url
+        # -mc: match codes
+        # -o: output file
+        # -of: output format
+        command = [
+            "ffuf", "-w", wordlist, "-u", target_url,
+            "-mc", "200,204,301,302,403",
+            "-o", output_file, "-of", "json"
+        ]
+        
+        self._run_with_stream(command, callback)
+        
+        findings = []
+        if os.path.exists(output_file):
+            try:
+                with open(output_file, 'r') as f:
+                    data = json.load(f)
+                    if "results" in data:
+                        for res in data["results"]:
+                            findings.append({
+                                "url": res.get("url"),
+                                "status": res.get("status"),
+                                "length": res.get("length")
+                            })
+            except Exception as e:
+                if callback: callback(f"Error parsing ffuf output: {e}")
+                
+        return findings
+
+    def run_nikto(self, target, callback=None):
+        """
+        Runs Nikto vulnerability scanner.
+        Command: nikto -h target -o output.json -Format json
+        """
+        safe_name = target.replace('://', '_').replace('/', '_').replace(':', '_')
+        output_file = os.path.join(self.output_dir, f"{safe_name}_nikto.json")
+        
+        if not shutil.which("nikto"):
+            if callback: callback("Error: Nikto not found.")
+            return []
+
+        # -h: target host
+        # -o: output file
+        # -Format: json
+        # -Tuning: 123bde (Interesting, Misconfig, Info, Denial, Auth Bypass)
+        command = [
+            "nikto", "-h", target, 
+            "-Tuning", "123bde",
+            "-o", output_file, "-Format", "json"
+        ]
+        
+        self._run_with_stream(command, callback)
+        
+        findings = []
+        if os.path.exists(output_file):
+            try:
+                with open(output_file, 'r') as f:
+                    data = json.load(f)
+                    # Nikto output is often a list of results (one per host/scan)
+                    if isinstance(data, list):
+                        for entry in data:
+                            if "vulnerabilities" in entry:
+                                for v in entry["vulnerabilities"]:
+                                    findings.append({
+                                        "msg": v.get("msg"),
+                                        "osvdb": v.get("osvdb")
+                                    })
+                    elif isinstance(data, dict):
+                        vulns = data.get("vulnerabilities", [])
+                        for v in vulns:
+                            findings.append({
+                                "msg": v.get("msg"),
+                                "osvdb": v.get("osvdb")
+                            })
+            except Exception as e:
+                if callback: callback(f"Error parsing Nikto output: {e}")
+                
+        return findings
+
+    def run_headers_analysis(self, url):
+        """
+        Analyzes HTTP security headers.
+        """
+        if not url.startswith('http'):
+            url = f"http://{url}"
+            
+        print(f"[*] Analyzing headers for: {url}")
+        results = {
+            "missing": [],
+            "present": [],
+            "server": "Unknown",
+            "score": 0
+        }
+        
+        security_headers = [
+            "Content-Security-Policy",
+            "Strict-Transport-Security",
+            "X-Frame-Options",
+            "X-Content-Type-Options",
+            "Referrer-Policy",
+            "Permissions-Policy"
+        ]
+        
+        try:
+            response = requests.get(url, timeout=10, verify=False)
+            headers = response.headers
+            
+            results["server"] = headers.get("Server", "Unknown")
+            
+            for header in security_headers:
+                if header in headers:
+                    results["present"].append(header)
+                else:
+                    results["missing"].append(header)
+            
+            # Calculate a simple score
+            total = len(security_headers)
+            present = len(results["present"])
+            results["score"] = int((present / total) * 100)
+            
+        except Exception as e:
+            print(f"[!] Header analysis failed: {e}")
+            
+        return results
+
     def run_crawler(self, start_urls):
         """
         Crawls the given URLs to find attackable parameters (Rule 33 & 34).
@@ -668,39 +824,6 @@ class ScanManager:
                 pass
                 
         return list(attackable_urls)
-        
-        print(f"[*] Running command: {' '.join(command)}")
-        try:
-            # wafw00f might return non-zero if no WAF found? No, usually 0.
-            subprocess.run(
-                command, 
-                shell=False, 
-                check=False, # Don't raise on non-zero, wafw00f might behave differently
-                stdout=subprocess.PIPE, 
-                stderr=subprocess.PIPE,
-                timeout=180
-            )
-        except subprocess.TimeoutExpired:
-            raise Exception("wafw00f timed out")
-        except Exception as e:
-            print(f"[!] wafw00f failed: {e}")
-            raise
-
-        # Parse the JSON output
-        results = []
-        if os.path.exists(output_file):
-            try:
-                with open(output_file, 'r') as f:
-                    data = json.load(f)
-                    # Support list or dict structure depending on version
-                    if isinstance(data, list):
-                        results = data
-                    else:
-                        results = [data]
-            except Exception as e:
-                print(f"[!] JSON Parsing error (wafw00f): {e}")
-                
-        return results
 
 if __name__ == "__main__":
     # Manual test

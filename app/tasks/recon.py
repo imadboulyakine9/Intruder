@@ -338,7 +338,7 @@ def workflow_task(self, target, tools, scan_id=None):
 
             socketio.emit('task_update', {
                 'status': 'Tech Detect finished.',
-                'percent': 100,
+                'percent': 80,
                 'scan_id': scan_id,
                 'partial_result': {'technologies': tech_res} 
             })
@@ -346,7 +346,7 @@ def workflow_task(self, target, tools, scan_id=None):
         # 5. URL Crawling & Parameter Discovery (Rule 33-35)
         # Always run if we have live assets, even if not explicitly in tools (it's part of logic)
         if live_assets:
-             socketio.emit('task_update', {'status': 'Crawling for attackable parameters...', 'scan_id': scan_id, 'percent': 95})
+             socketio.emit('task_update', {'status': 'Crawling for attackable parameters...', 'scan_id': scan_id, 'percent': 82})
              # get list of URLs from live_assets
              start_urls = [asset.get('url', asset.get('input')) for asset in live_assets]
              
@@ -369,11 +369,35 @@ def workflow_task(self, target, tools, scan_id=None):
                  
              socketio.emit('task_update', {
                 'status': f'Crawler finished. Found {len(attackable_urls)} interesting URLs.',
-                 'percent': 98,
+                 'percent': 85,
                  'scan_id': scan_id,
                 'partial_result': {'attackable_urls': attackable_urls} 
             })
 
+        # 6. Directory Fuzzing (ffuf)
+        if 'ffuf' in tools:
+            socketio.emit('task_update', {'status': 'Fuzzing directory structure (this may take a moment)...', 'scan_id': scan_id, 'percent': 88})
+            ffuf_res = manager.run_ffuf(target, callback=lambda line: socketio.emit('tool_output', {'scan_id': scan_id, 'tool': 'ffuf', 'line': line}))
+            results['ffuf'] = ffuf_res
+            
+            socketio.emit('task_update', {
+                'status': 'ffuf finished.',
+                'percent': 90,
+                'scan_id': scan_id,
+                'partial_result': {'fuzzing': ffuf_res} 
+            })
+
+        # 7. Infrastructure & Header Analysis
+        socketio.emit('task_update', {'status': 'Analyzing security headers...', 'scan_id': scan_id, 'percent': 92})
+        header_res = manager.run_headers_analysis(target)
+        results['headers'] = header_res
+        
+        socketio.emit('task_update', {
+            'status': 'Header analysis complete.',
+            'percent': 95,
+            'scan_id': scan_id,
+            'partial_result': {'headers': header_res}
+        })
 
         socketio.emit('task_update', {
             'status': 'All scans completed successfully!',

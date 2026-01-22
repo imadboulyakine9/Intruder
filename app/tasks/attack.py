@@ -214,3 +214,39 @@ def commix_scan(self, target, scan_id=None):
     
     socketio.emit('task_update', {'status': 'Commix completed. Check logs for details.', 'percent': 100, 'scan_id': scan_id})
     return {'tool': 'Commix', 'count': 0}
+
+@celery_app.task(bind=True)
+def nikto_scan(self, target, scan_id=None):
+    """
+    Celery task to run Nikto.
+    """
+    manager = ScanManager()
+    r_client = get_redis_client()
+
+    def on_output(line):
+        socketio.emit('tool_output', {'line': line, 'tool': 'Nikto', 'scan_id': scan_id})
+        if scan_id:
+            try:
+                r_client.rpush(f"logs:{scan_id}", f"[Nikto] {line}")
+                r_client.ltrim(f"logs:{scan_id}", -50, -1)
+            except Exception as e:
+                socketio.emit('tool_output', {'line': f"[Redis Error] {e}", 'tool': 'Nikto', 'scan_id': scan_id})
+
+    socketio.emit('task_update', {'status': f'Starting Nikto scan on {target}...', 'percent': 10, 'scan_id': scan_id})
+    if scan_id:
+        r_client.rpush(f"logs:{scan_id}", f"[SYSTEM] Starting Nikto scan on {target}...")
+
+    findings = manager.run_nikto(target, callback=on_output)
+
+    if findings:
+        vuln_col = get_vulnerabilities_collection()
+        for item in findings:
+            item['scan_id'] = scan_id
+            item['target'] = target
+            item['tool'] = 'Nikto'
+            item['name'] = item.get('msg', 'Nikto Finding')
+            item['discovered_at'] = datetime.datetime.utcnow()
+            vuln_col.insert_one(item)
+
+    socketio.emit('task_update', {'status': f'Nikto completed. Found {len(findings)} issues.', 'percent': 100, 'scan_id': scan_id})
+    return {'tool': 'Nikto', 'count': len(findings)}

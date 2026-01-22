@@ -52,6 +52,8 @@ celery_app.conf.update(
     worker_send_task_events=True,
     task_acks_late=True,
     worker_prefetch_multiplier=1,  # One task at a time per worker
+    task_time_limit=1800,          # 30 minute hard limit
+    task_soft_time_limit=1500,     # 25 minute soft limit
     
     # Worker settings
     worker_max_tasks_per_child=1000,

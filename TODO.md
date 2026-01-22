@@ -95,7 +95,7 @@ Here is your **100-Step "Jarvis" Execution Plan**.
 58. **False Positive Check:** If sizes are identical, it's likely a finding.
 59. **Reporting IDOR:** Save as a "High Severity" finding in DB.
 60. **Websocket Polish:** Ensure the "Terminal" auto-scrolls to the bottom.
-61. **Stop Button:** Implement a way to kill a Celery task (revoke ID).
+61. **Stop Button:** Implement a way to kill a Celery task (revoke ID). // high
 
 ### Phase 6: Reporting & Viz (Week 7)
 *Goal: Generate the PDF for the Jury.*
