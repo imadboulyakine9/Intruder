@@ -457,7 +457,7 @@
                                         </div>
                                     </div>
 
-                                    <h6 class="font-mono text-muted mb-3">SECURITY HEADER SCORE: <span class="text-white" id="header-score">{{ headers.get('score', 0) }}%</span></h6>
+<!--                                    <h6 class="font-mono text-muted mb-3">SECURITY HEADER SCORE: <span class="text-white" id="header-score">{{ headers.get('score', 0) }}%</span></h6>
                                     <div class="row g-2" id="header-grid">
                                         {% for h in ["Content-Security-Policy", "Strict-Transport-Security", "X-Frame-Options", "X-Content-Type-Options", "Referrer-Policy", "Permissions-Policy"] %}
                                         <div class="col-md-6">
@@ -473,6 +473,7 @@
                                         </div>
                                         {% endfor %}
                                     </div>
+-->
                                 </div>
                              </div>
                         </div>
@@ -574,20 +575,6 @@
                         </button>
                         <p class="text-muted">Run analysis to generate attack vector suggestions.</p>
                         
-                        <!-- Static Nikto Card for Quick Access -->
-                        <div class="mt-4 pt-4 border-top border-secondary w-100 text-center">
-                            <div class="card border-secondary bg-transparent mx-auto" style="max-width: 400px;">
-                                <div class="card-body text-start">
-                                    <h5 class="card-title text-success font-mono mb-0"><i class="bi bi-crosshair"></i> Nikto</h5>
-                                    <p class="card-text text-muted small">Comprehensive web server scanner (6700+ checks).</p>
-                                    <button onclick="launchAttack('{{ current_scan.scan_id }}', 'Nikto')" 
-                                            class="btn btn-outline-light btn-sm w-100 font-mono mt-3">
-                                        LAUNCH ATTACK
-                                    </button>
-                                </div>
-                            </div>
-                        </div>
-
                     </div>
                     {% endif %}
                     </div>
@@ -693,6 +680,8 @@
                 if(document.getElementById('checkSub').checked) tools.push('subfinder');
                 if(document.getElementById('checkNmap').checked) tools.push('nmap');
                 if(document.getElementById('checkWap').checked) tools.push('wappalyzer');
+                if(document.getElementById('checkFfuf').checked) tools.push('ffuf');
+
                 
                 launchScanBtn.disabled = true;
                 launchScanBtn.innerHTML = '<i class="bi bi-hourglass-split"></i> DEPLOYING...';

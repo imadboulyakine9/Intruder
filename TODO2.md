@@ -1,0 +1,2 @@
+- ffuf is not working as intended 
+- state and percentage of the analyzer is not maintende 
