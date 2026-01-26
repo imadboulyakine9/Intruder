@@ -582,11 +582,45 @@
 
                 <!-- 4. Report Tab -->
                 <div class="tab-pane fade" id="report" role="tabpanel">
-                    <div class="text-center pt-5">
-                        <i class="bi bi-file-earmark-text display-1 text-muted"></i>
-                        <h4 class="mt-3">Reporting Module</h4>
-                        <p class="text-muted">Generate comprehensive PDF/HTML reports for this target.</p>
-                        <button class="btn btn-primary" disabled>Generate Report (Coming Soon)</button>
+                    <div class="row justify-content-center">
+                        <div class="col-md-8">
+                            <div class="text-center pt-4">
+                                <i class="bi bi-file-earmark-text display-1 text-accent mb-4"></i>
+                                <h4 class="mb-3">Professional Security Report</h4>
+                                <p class="text-muted mb-4">Generate a comprehensive PDF or HTML report containing all findings, recommendations, and technical details from this assessment.</p>
+                                
+                                <div class="card bg-panel border-secondary mb-4">
+                                    <div class="card-body">
+                                        <h6 class="text-white mb-3">Report Contents:</h6>
+                                        <ul class="list-unstyled text-start text-muted small">
+                                            <li class="mb-2"><i class="bi bi-check-circle text-success me-2"></i> Executive Summary with Key Metrics</li>
+                                            <li class="mb-2"><i class="bi bi-check-circle text-success me-2"></i> Reconnaissance Findings (Subdomains, Technologies, Ports)</li>
+                                            <li class="mb-2"><i class="bi bi-check-circle text-success me-2"></i> Detailed Vulnerability Assessment</li>
+                                            <li class="mb-2"><i class="bi bi-check-circle text-success me-2"></i> Risk Classification & Severity Ratings</li>
+                                            <li class="mb-2"><i class="bi bi-check-circle text-success me-2"></i> Security Recommendations</li>
+                                        </ul>
+                                    </div>
+                                </div>
+                                
+                                <div class="btn-group" role="group">
+                                    <button class="btn btn-primary btn-lg" onclick="generateReport('{{ current_scan.scan_id }}', 'pdf')">
+                                        <i class="bi bi-file-pdf"></i> Generate PDF Report
+                                    </button>
+                                    <button class="btn btn-outline-primary btn-lg" onclick="generateReport('{{ current_scan.scan_id }}', 'html')">
+                                        <i class="bi bi-filetype-html"></i> Generate HTML
+                                    </button>
+                                </div>
+                                
+                                {% if current_scan.report_path %}
+                                <div class="mt-4">
+                                    <p class="text-success"><i class="bi bi-check-circle-fill"></i> Report generated on {{ current_scan.report_generated_at.strftime('%Y-%m-%d %H:%M UTC') if current_scan.report_generated_at else 'Unknown' }}</p>
+                                    <a href="/api/download-report/{{ current_scan.scan_id }}" class="btn btn-success">
+                                        <i class="bi bi-download"></i> Download Existing Report
+                                    </a>
+                                </div>
+                                {% endif %}
+                            </div>
+                        </div>
                     </div>
                 </div>
 
@@ -640,6 +674,16 @@
         
         // --- 1. Actions ---
         
+        function escapeHtml(text) {
+            if (!text) return '';
+            return String(text)
+                .replace(/&/g, "&amp;")
+                .replace(/</g, "&lt;")
+                .replace(/>/g, "&gt;")
+                .replace(/"/g, "&quot;")
+                .replace(/'/g, "&#039;");
+        }
+
         // A. Create Target
         const createTargetBtn = document.getElementById('createTargetBtn');
         if(createTargetBtn) {
@@ -857,7 +901,7 @@
                          data.live_assets.forEach(asset => {
                              const li = document.createElement('li');
                              li.className = 'list-group-item py-1 text-success d-flex justify-content-between';
-                             const url = asset.url || 'Unknown';
+                             const url = asset.url || asset.input || 'Unknown';
                              li.innerHTML = `
                                  <span class="text-truncate" style="max-width: 200px;" title="${url}">${url}</span>
                                  <span class="badge ${asset.status_code == 200 ? 'bg-success' : 'bg-secondary'}">${asset.status_code || 'N/A'}</span>
@@ -1269,10 +1313,7 @@
                 });
             } catch(e) { console.error("Graph Error:", e); }
         }
-    </script>
-</body>
-</html>
-<script>
+
         // Phase 4: Fetch Attack Findings
         async function fetchFindings() {
             if (!scanId) return;
@@ -1298,10 +1339,10 @@
                         const evidenceData = encodeURIComponent(JSON.stringify(vuln));
                         tr.innerHTML = `
                             <td class="${sevColor} fw-bold">${sev}</td>
-                            <td>${vuln.name || (vuln.info && vuln.info.name) || 'Unknown Issue'}</td>
-                            <td><span class="badge bg-secondary">${vuln.tool}</span></td>
-                            <td class="small font-mono text-truncate" style="max-width: 200px;">${vuln.url || vuln.host || ''}</td>
-                            <td><button class="btn btn-sm btn-outline-info view-evidence-btn" data-evidence="${evidenceData}" data-tool="${vuln.tool}" data-bs-toggle="modal" data-bs-target="#evidenceModal">View Evidence</button></td>
+                            <td>${escapeHtml(vuln.name || (vuln.info && vuln.info.name) || 'Unknown Issue')}</td>
+                            <td><span class="badge bg-secondary">${escapeHtml(vuln.tool)}</span></td>
+                            <td class="small font-mono text-truncate" style="max-width: 200px;">${escapeHtml(vuln.url || vuln.host || '')}</td>
+                            <td><button class="btn btn-sm btn-outline-info view-evidence-btn" data-evidence="${evidenceData}" data-tool="${escapeHtml(vuln.tool)}" data-bs-toggle="modal" data-bs-target="#evidenceModal">View Evidence</button></td>
                         `;
                         tbody.appendChild(tr);
                     });
@@ -1324,40 +1365,40 @@
 
                 // Format evidence based on tool
                 let html = '';
-                html += `<div class="mb-2"><span class="fw-bold">Vulnerability:</span> ${vuln.name || (vuln.info && vuln.info.name) || 'Unknown'}</div>`;
-                html += `<div class="mb-2"><span class="fw-bold">Tool:</span> ${vuln.tool || 'Unknown'}</div>`;
-                html += `<div class="mb-2"><span class="fw-bold">Severity:</span> ${(vuln.severity || 'INFO').toUpperCase()}</div>`;
-                html += `<div class="mb-2"><span class="fw-bold">Location:</span> ${vuln.url || vuln.host || 'N/A'}</div>`;
+                html += `<div class="mb-2"><span class="fw-bold">Vulnerability:</span> ${escapeHtml(vuln.name || (vuln.info && vuln.info.name) || 'Unknown')}</div>`;
+                html += `<div class="mb-2"><span class="fw-bold">Tool:</span> ${escapeHtml(vuln.tool || 'Unknown')}</div>`;
+                html += `<div class="mb-2"><span class="fw-bold">Severity:</span> ${escapeHtml((vuln.severity || 'INFO').toUpperCase())}</div>`;
+                html += `<div class="mb-2"><span class="fw-bold">Location:</span> ${escapeHtml(vuln.url || vuln.host || 'N/A')}</div>`;
                 html += `<hr/>`;
 
                 // Tool-specific formatting
                 if (tool === 'dalfox') {
                     // Dalfox: try to pretty-print payload, param, message, etc.
                     if (vuln.param || vuln.payload || vuln.message_str || vuln.inject_type) {
-                        html += `<div class="mb-2"><span class="fw-bold">Parameter:</span> ${vuln.param || ''}</div>`;
-                        html += `<div class="mb-2"><span class="fw-bold">Payload:</span> <code>${vuln.payload || ''}</code></div>`;
-                        html += `<div class="mb-2"><span class="fw-bold">Injection Type:</span> ${vuln.inject_type || ''}</div>`;
-                        html += `<div class="mb-2"><span class="fw-bold">Message:</span> ${vuln.message_str || ''}</div>`;
+                        html += `<div class="mb-2"><span class="fw-bold">Parameter:</span> ${escapeHtml(vuln.param)}</div>`;
+                        html += `<div class="mb-2"><span class="fw-bold">Payload:</span> <code>${escapeHtml(vuln.payload)}</code></div>`;
+                        html += `<div class="mb-2"><span class="fw-bold">Injection Type:</span> ${escapeHtml(vuln.inject_type)}</div>`;
+                        html += `<div class="mb-2"><span class="fw-bold">Message:</span> ${escapeHtml(vuln.message_str)}</div>`;
                     } else {
-                        html += `<pre class="bg-dark p-2 rounded">${JSON.stringify(vuln, null, 2)}</pre>`;
+                        html += `<pre class="bg-dark p-2 rounded">${escapeHtml(JSON.stringify(vuln, null, 2))}</pre>`;
                     }
                 } else if (tool === 'sqlmap') {
                     // SQLMap: show relevant fields
                     if (vuln.data) {
                         html += `<div class="mb-2"><span class="fw-bold">Details:</span></div>`;
-                        html += `<pre class="bg-dark p-2 rounded">${JSON.stringify(vuln.data, null, 2)}</pre>`;
+                        html += `<pre class="bg-dark p-2 rounded">${escapeHtml(JSON.stringify(vuln.data, null, 2))}</pre>`;
                     } else {
-                        html += `<pre class="bg-dark p-2 rounded">${JSON.stringify(vuln, null, 2)}</pre>`;
+                        html += `<pre class="bg-dark p-2 rounded">${escapeHtml(JSON.stringify(vuln, null, 2))}</pre>`;
                     }
                 } else if (tool === 'nikto') {
                     // Nikto formatting
-                     html += `<div class="mb-2"><span class="fw-bold">Description:</span> ${vuln.msg || vuln.message || ''}</div>`;
+                     html += `<div class="mb-2"><span class="fw-bold">Description:</span> ${escapeHtml(vuln.msg || vuln.message || '')}</div>`;
                      if (vuln.osvdb) {
-                         html += `<div class="mb-2"><span class="fw-bold">OSVDB:</span> ${vuln.osvdb}</div>`;
+                         html += `<div class="mb-2"><span class="fw-bold">OSVDB:</span> ${escapeHtml(vuln.osvdb)}</div>`;
                      }
                 } else {
                     // Default: pretty-print all evidence
-                    html += `<pre class="bg-dark p-2 rounded">${JSON.stringify(vuln, null, 2)}</pre>`;
+                    html += `<pre class="bg-dark p-2 rounded">${escapeHtml(JSON.stringify(vuln, null, 2))}</pre>`;
                 }
                 modalContent.innerHTML = html;
             }
@@ -1367,3 +1408,5 @@
         setInterval(fetchFindings, 5000);
         fetchFindings();
 </script>
+</body>
+</html>

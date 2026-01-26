@@ -1,0 +1,321 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Intruder - PFE Defense</title>
+    
+    <!-- Reveal.js Core & Theme -->
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/reveal.js/4.5.0/reset.min.css">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/reveal.js/4.5.0/reveal.min.css">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/reveal.js/4.5.0/theme/black.min.css" id="theme">
+    
+    <!-- Code Highlighting -->
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.7.0/styles/monokai.min.css">
+
+    <!-- Icons -->
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+
+    <style>
+        /* --- PROFESSIONAL CUSTOMIZATIONS --- */
+        :root {
+            --accent-color: #00d4ff; /* Cyber Blue */
+            --secondary-color: #00ff41; /* Success Green */
+            --bg-dark: #121212;
+            --card-bg: rgba(255, 255, 255, 0.08);
+        }
+
+        body { background-color: var(--bg-dark); }
+
+        .reveal { font-family: 'Segoe UI', Roboto, Helvetica, Arial, sans-serif; }
+        
+        /* Headers */
+        .reveal h1, .reveal h2, .reveal h3 {
+            text-transform: uppercase;
+            font-weight: 700;
+            letter-spacing: 2px;
+        }
+        
+        .reveal h1 { color: var(--accent-color); text-shadow: 0 0 20px rgba(0, 212, 255, 0.4); }
+        .reveal h2 { color: #ffffff; border-bottom: 2px solid var(--accent-color); display: inline-block; padding-bottom: 10px; }
+        .reveal h3 { color: var(--secondary-color); font-size: 1.2em; }
+
+        /* Modern Cards */
+        .feature-card {
+            background: var(--card-bg);
+            border-left: 4px solid var(--accent-color);
+            padding: 20px;
+            margin: 15px 0;
+            border-radius: 0 10px 10px 0;
+            text-align: left;
+            transition: transform 0.3s ease;
+            box-shadow: 0 4px 15px rgba(0,0,0,0.3);
+        }
+        
+        .feature-card:hover { transform: translateX(10px); background: rgba(255, 255, 255, 0.12); }
+        .feature-card i { color: var(--accent-color); margin-right: 15px; width: 30px; text-align: center; }
+
+        /* Code Blocks */
+        .reveal pre { box-shadow: 0 5px 15px rgba(0,0,0,0.5); width: 100%; }
+        .reveal code { font-family: 'Fira Code', monospace; font-size: 1.2rem; line-height: 1.4; }
+
+        /* Layout Utilities */
+        .cols-2 { display: grid; grid-template-columns: 1fr 1fr; gap: 40px; align-items: center; }
+        .cols-3 { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 20px; }
+        
+        /* Diagram Nodes */
+        .node {
+            background: #333; padding: 15px; border-radius: 8px; border: 1px solid #555;
+            text-align: center; font-size: 0.8em; color: white;
+        }
+        .arrow-down { text-align: center; color: var(--accent-color); font-size: 1.5em; margin: 5px 0; }
+
+        /* Footer for PFE */
+        .pfe-footer {
+            position: absolute; bottom: 20px; left: 20px; font-size: 0.4em; opacity: 0.5; font-family: monospace;
+        }
+    </style>
+</head>
+<body>
+
+    <div class="reveal">
+        <div class="slides">
+
+            <!-- SLIDE 1: TITLE -->
+            <section data-auto-animate>
+                <div style="margin-bottom: 20px; font-size: 3em;">
+                    <i class="fas fa-shield-halved" style="color: var(--accent-color);"></i>
+                </div>
+                <h1>INTRUDER</h1>
+                <h3>Automated Web Vulnerability Scanner & Orchestrator</h3>
+                <p style="font-size: 0.6em; margin-top: 50px; color: #888;">
+                    Final Year Project (PFE) Defense<br>
+                    <strong>Jarvis OS Architecture</strong>
+                </p>
+            </section>
+
+            <!-- SLIDE 2: CONTEXT & PROBLEM -->
+            <section>
+                <h2>Context & Problem</h2>
+                <div class="cols-2">
+                    <div style="font-size: 0.7em; text-align: left;">
+                        <p class="fragment fade-up"><i class="fas fa-chart-line"></i> <strong>Rising Threats:</strong> Web applications remain the primary attack vector for cybercriminals.</p>
+                        <p class="fragment fade-up"><i class="fas fa-clock"></i> <strong>Manual Inefficiency:</strong> Traditional penetration testing is time-consuming and repetitive.</p>
+                        <p class="fragment fade-up"><i class="fas fa-tools"></i> <strong>Tool Fragmentation:</strong> Security pros juggle dozens of disjointed CLI tools (Nmap, Subfinder, etc.).</p>
+                    </div>
+                    <div class="fragment zoom-in">
+                        <div class="feature-card" style="border-left-color: #ff4444;">
+                            <h4 style="margin:0">The Gap</h4>
+                            <p style="font-size: 0.6em;">Lack of a unified, automated dashboard that bridges Reconnaissance and Active Analysis.</p>
+                        </div>
+                    </div>
+                </div>
+            </section>
+
+            <!-- SLIDE 3: THE SOLUTION -->
+            <section data-auto-animate>
+                <h2>Proposed Solution</h2>
+                <p><strong>Intruder (Jarvis OS)</strong></p>
+                <p style="font-size: 0.7em;">A modular, web-based orchestration framework.</p>
+                
+                <div class="cols-3" style="margin-top: 40px; font-size: 0.6em;">
+                    <div class="fragment fade-up">
+                        <div class="node" style="border-color: var(--accent-color);">
+                            <i class="fas fa-robot fa-3x" style="margin-bottom:10px;"></i><br>
+                            <strong>Automate</strong><br>Recon workflows
+                        </div>
+                    </div>
+                    <div class="fragment fade-up">
+                        <div class="node" style="border-color: var(--secondary-color);">
+                            <i class="fas fa-brain fa-3x" style="margin-bottom:10px;"></i><br>
+                            <strong>Analyze</strong><br>Context-aware suggestions
+                        </div>
+                    </div>
+                    <div class="fragment fade-up">
+                        <div class="node" style="border-color: #ff0055;">
+                            <i class="fas fa-desktop fa-3x" style="margin-bottom:10px;"></i><br>
+                            <strong>Visualize</strong><br>Real-time Dashboard
+                        </div>
+                    </div>
+                </div>
+            </section>
+
+            <!-- SLIDE 4: TECHNICAL ARCHITECTURE -->
+            <section>
+                <h2>System Architecture</h2>
+                <div class="cols-2">
+                    <div style="font-size: 0.6em; text-align: left;">
+                        <div class="feature-card fragment custom blur">
+                            <strong>Backend (Flask):</strong><br> REST API & Route Management (routes.py).
+                        </div>
+                        <div class="feature-card fragment custom blur">
+                            <strong>Async Task Queue (Celery + Redis):</strong><br> Handles long-running scans without freezing the UI.
+                        </div>
+                        <div class="feature-card fragment custom blur">
+                            <strong>Real-time (SocketIO):</strong><br> Pushes scan logs to the frontend instantly.
+                        </div>
+                        <div class="feature-card fragment custom blur">
+                            <strong>Database (MongoDB):</strong><br> Stores unstructured JSON output from security tools.
+                        </div>
+                    </div>
+                    
+                    <!-- Diagram representation -->
+                    <div style="font-size: 0.6em;" class="fragment">
+                        <div class="node">User Interface (HTML/JS)</div>
+                        <div class="arrow-down">⬇️ ⬆️ (SocketIO)</div>
+                        <div class="node" style="background: #222;">Flask Server</div>
+                        <div class="arrow-down">⬇️ (Dispatch)</div>
+                        <div class="node" style="border: 1px dashed var(--secondary-color);">
+                            <strong>Celery Worker</strong><br>
+                            <span style="font-size:0.8em; color:#aaa;">Runs: Nmap, Wafw00f, etc.</span>
+                        </div>
+                    </div>
+                </div>
+            </section>
+
+            <!-- SLIDE 5: MODULE 1 - RECONNAISSANCE -->
+            <section>
+                <h3>Module 1: Automated Recon</h3>
+                <p style="font-size: 0.6em; opacity: 0.8;">The foundation of any security assessment.</p>
+                
+                <div style="display: flex; gap: 20px; justify-content: center; margin-top: 30px;">
+                    <div class="node fragment fade-right" style="width: 150px;">
+                        <i class="fas fa-globe"></i><br>Subfinder<br><span style="font-size:0.7em; color:gray;">Subdomains</span>
+                    </div>
+                    <div class="node fragment fade-right" style="width: 150px;">
+                        <i class="fas fa-network-wired"></i><br>Nmap<br><span style="font-size:0.7em; color:gray;">Ports/Services</span>
+                    </div>
+                    <div class="node fragment fade-right" style="width: 150px;">
+                        <i class="fab fa-react"></i><br>Wappalyzer<br><span style="font-size:0.7em; color:gray;">Tech Stack</span>
+                    </div>
+                </div>
+
+                <div class="feature-card fragment" style="margin-top: 30px; font-size: 0.7em;">
+                    <i class="fas fa-code"></i> <strong>scan_manager.py:</strong> 
+                    Wrapper class that executes subprocesses, captures stdout/stderr, and normalizes the output for the database.
+                </div>
+            </section>
+
+            <!-- SLIDE 6: MODULE 2 - SMART ANALYSIS -->
+            <section data-auto-animate>
+                <h3>Module 2: Smart Analysis Engine</h3>
+                <div class="cols-2">
+                    <div style="text-align: left; font-size: 0.7em;">
+                        <p>Raw data is useless without context. The <strong>Analyzer</strong> (`analyzer.py`) processes recon data to suggest attacks.</p>
+                        <ul style="margin-top: 20px;">
+                            <li class="fragment"><strong>Input:</strong> Open ports, Technologies, WAF presence.</li>
+                            <li class="fragment"><strong>Logic:</strong> 
+                                <ul>
+                                    <li>If <em>WAF Detected</em> &rarr; Suggest Obfuscation tools.</li>
+                                    <li>If <em>PHP + MySQL</em> &rarr; Suggest SQL Injection scans.</li>
+                                </ul>
+                            </li>
+                            <li class="fragment"><strong>Output:</strong> Confidence Score (0-100%).</li>
+                        </ul>
+                    </div>
+                    <div class="fragment">
+                        <pre><code class="python" data-trim data-noescape>
+def analyze_target(scan_data):
+    confidence = 0
+    if scan_data['waf_detected']:
+        confidence -= 20 # Reduce aggression
+        suggestions.append("Tamper Scripts")
+    
+    if "php" in scan_data['tech']:
+        suggestions.append("SQLMap")
+        
+    return suggestions
+                        </code></pre>
+                    </div>
+                </div>
+            </section>
+
+            <!-- SLIDE 7: DEMONSTRATION (UI) -->
+            <section>
+                <h2>Dashboard Implementation</h2>
+                <p style="font-size: 0.6em;">A "Single Page Application" feel using Jinja2 and jQuery/Sockets.</p>
+                
+                <div class="cols-3" style="font-size: 0.5em;">
+                    <div class="feature-card">
+                        <strong>Overview Tab</strong>
+                        <br>Summary of assets and overall risk score.
+                    </div>
+                    <div class="feature-card">
+                        <strong>Live Terminal</strong>
+                        <br>Black box displaying real-time stdout from tools.
+                    </div>
+                    <div class="feature-card">
+                        <strong>Attack Hub</strong>
+                        <br>One-click execution of suggested exploits.
+                    </div>
+                </div>
+                
+                <div style="margin-top: 20px; border: 1px solid #333; height: 200px; display: flex; align-items: center; justify-content: center; background: #000; color: #0f0; font-family: monospace;">
+                    [System] Initializing Scan...<br>
+                    [Subfinder] Found: api.target.com<br>
+                    [Nmap] Port 80, 443 Open<br>
+                    [Analyzer] Recommendation: Check for IDOR on /api/v1/user
+                </div>
+            </section>
+
+            <!-- SLIDE 8: CHALLENGES & FUTURE WORK -->
+            <section>
+                <h2>Challenges & Roadmap</h2>
+                <div class="cols-2" style="font-size: 0.7em;">
+                    <div>
+                        <h4 style="color:var(--accent-color)">Technical Challenges</h4>
+                        <ul class="fa-ul">
+                            <li><span class="fa-li"><i class="fas fa-exclamation-triangle"></i></span><strong>Concurrency:</strong> Preventing Celery workers from overlapping on the same target.</li>
+                            <li><span class="fa-li"><i class="fas fa-exclamation-triangle"></i></span><strong>Parsing:</strong> Normalizing diverse outputs (JSON, XML, Text) from different tools.</li>
+                        </ul>
+                    </div>
+                    <div>
+                        <h4 style="color:var(--secondary-color)">Future Work</h4>
+                        <ul class="fa-ul">
+                            <li><span class="fa-li"><i class="fas fa-star"></i></span><strong>AI Integration:</strong> Use LLMs to interpret scan results naturally.</li>
+                            <li><span class="fa-li"><i class="fas fa-star"></i></span><strong>Reporting:</strong> Auto-generate PDF reports for compliance.</li>
+                        </ul>
+                    </div>
+                </div>
+            </section>
+
+            <!-- SLIDE 9: CONCLUSION -->
+            <section data-auto-animate>
+                <h1>Conclusion</h1>
+                <p>Intruder bridges the gap between manual pen-testing and automated compliance.</p>
+                <div style="display: flex; justify-content: space-around; margin-top: 50px;">
+                    <div style="text-align: center;">
+                        <h2 style="color: var(--secondary-color); font-size: 2em; border:none;">Efficiency</h2>
+                        <small>Automation</small>
+                    </div>
+                    <div style="text-align: center;">
+                        <h2 style="color: var(--accent-color); font-size: 2em; border:none;">Insight</h2>
+                        <small>Analysis</small>
+                    </div>
+                    <div style="text-align: center;">
+                        <h2 style="color: #ff0055; font-size: 2em; border:none;">Usability</h2>
+                        <small>Interface</small>
+                    </div>
+                </div>
+                <br>
+                <p style="font-size: 0.7em; margin-top: 30px;">Thank You.</p>
+            </section>
+
+        </div>
+    </div>
+
+    <!-- Reveal.js Scripts -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/reveal.js/4.5.0/reveal.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/reveal.js/4.5.0/plugin/highlight/highlight.min.js"></script>
+    <script>
+        Reveal.initialize({
+            hash: true,
+            slideNumber: true,
+            transition: 'convex', // options: none/fade/slide/convex/concave/zoom
+            autoAnimateEasing: 'ease-out',
+            autoAnimateDuration: 0.8,
+            plugins: [ RevealHighlight ]
+        });
+    </script>
+</body>
+</html>

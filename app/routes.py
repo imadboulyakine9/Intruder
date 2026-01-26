@@ -6,6 +6,7 @@ from app.analyzer import Analyzer
 from app.db import get_scans_collection, get_attackable_urls_collection, get_redis_client, get_subdomains_collection, get_vulnerabilities_collection, get_technologies_collection, get_assets_collection
 import datetime
 from app.celery_worker import celery_app
+from app.tasks.report import generate_report_task
 
 bp = Blueprint('main', __name__)
 
@@ -366,3 +367,40 @@ def get_vulns(scan_id):
         clean_findings.append(f)
             
     return jsonify({'findings': clean_findings})
+
+@bp.route('/api/generate-report', methods=['POST'])
+def generate_report():
+    """Trigger report generation."""
+    data = request.get_json()
+    scan_id = data.get('scan_id')
+    format_type = data.get('format', 'pdf')  # pdf or html
+    
+    if not scan_id:
+        return jsonify({'error': 'scan_id required'}), 400
+    
+    # Trigger Celery task
+    task = generate_report_task.delay(scan_id, format_type)
+    
+    return jsonify({
+        'status': 'success',
+        'task_id': task.id,
+        'message': 'Report generation started'
+    }), 202
+
+@bp.route('/api/download-report/<scan_id>')
+def download_report(scan_id):
+    """Download generated report."""
+    from flask import send_file
+    import os
+    
+    scan = get_scans_collection().find_one({"scan_id": scan_id})
+    if not scan or 'report_path' not in scan:
+        return jsonify({'error': 'Report not found'}), 404
+    
+    report_path = scan['report_path']
+    if not os.path.exists(report_path):
+        return jsonify({'error': 'Report file not found on server'}), 404
+    
+    # Use absolute path to be safe
+    abs_path = os.path.abspath(report_path)
+    return send_file(abs_path, as_attachment=True)

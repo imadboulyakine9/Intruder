@@ -404,24 +404,36 @@ class ScanManager:
                     # Nuclei typically writes JSON lines. Let's handle both.)
                     # Actually, `nuclei -json` usually writes a JSON array. `nuclei -jsonl` writes lines.
                     # The prompt said `-json`.
-                    content = f.read()
-                    if content.startswith('['):
-                        data = json.loads(content)
-                        for item in data:
-                            severity = item.get('info', {}).get('severity', 'low').lower()
-                            if severity in ['medium', 'high', 'critical']:
+                    # Nuclei v3 with -jsonl writes line-delimited JSON. 
+                    # We check the first character to determine if it's an array or JSONL.
+                    first_char = f.read(1)
+                    f.seek(0)
+                    
+                    if first_char == '[':
+                        # JSON Array format
+                        try:
+                            data = json.load(f)
+                            for item in data:
                                 findings.append(item)
+                        except json.JSONDecodeError as e:
+                            if callback: callback(f"Error parsing Nuclei JSON Array: {e}")
                     else:
-                        # Try parsing line by line
-                        f.seek(0)
+                        # JSON Lines format (JSONL)
                         for line in f:
+                            line = line.strip()
+                            if not line: continue
                             try:
                                 item = json.loads(line)
-                                severity = item.get('info', {}).get('severity', 'low').lower()
-                                if severity in ['medium', 'high', 'critical']:
+                                # Adding all severities to ensure visibility. 
+                                # Filter: info, low, medium, high, critical, unknown
+                                severity = item.get('info', {}).get('severity', 'info').lower()
+                                if severity in ['info', 'low', 'medium', 'high', 'critical', 'unknown']:
                                     findings.append(item)
-                            except:
+                            except json.JSONDecodeError:
+                                # Skip invalid lines (e.g. empty or corruption)
                                 pass
+                            except Exception as e:
+                                if callback: callback(f"Error processing Nuclei line: {e}")
             except Exception as e:
                  if callback: callback(f"Error parsing Nuclei output: {e}")
                  

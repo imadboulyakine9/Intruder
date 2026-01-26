@@ -89,6 +89,7 @@ celery_app.conf.task_queues = (
 # Explicitly import tasks to ensure registration
 import app.tasks.recon
 import app.tasks.attack
+import app.tasks.report
 
 
 @celery_app.task(bind=True)
